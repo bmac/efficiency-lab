@@ -6,4 +6,5 @@ export const routes = route({
   auth: '/auth',
   redBeads: '/red-beads',
   shewhart: '/shewhart',
+  pinFactory: '/pin-factory',
 })

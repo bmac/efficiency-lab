@@ -14,6 +14,7 @@ export const assets = createAssetServer({
     'app/ui/control-chart.tsx',
     'app/controllers/red-beads/**',
     'app/controllers/shewhart/**',
+    'app/controllers/pin-factory/**',
     'node_modules/**',
   ],
   deny: ['app/**/*.server.*'],

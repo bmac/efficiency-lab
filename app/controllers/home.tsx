@@ -36,7 +36,7 @@ const TOOLS: ToolEntry[] = [
   {
     href: '/pin-factory',
     title: 'Pin Factory Simulator',
-    status: 'planned',
+    status: 'live',
     blurb:
       'Five-station serial line. Slide variance up, watch buffers grow. Push vs. pull, live throughput.',
   },
