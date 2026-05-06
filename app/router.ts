@@ -3,6 +3,7 @@ import { createRouter } from 'remix/fetch-router'
 import { assets } from './assets.ts'
 import { auth } from './controllers/auth.tsx'
 import { home } from './controllers/home.tsx'
+import { redBeads } from './controllers/red-beads/controller.tsx'
 import { routes } from './routes.ts'
 
 export const router = createRouter()
@@ -14,3 +15,4 @@ router.get(routes.assets, async ({ request }) => {
 
 router.map(routes.home, home)
 router.map(routes.auth, auth)
+router.map(routes.redBeads, redBeads)
