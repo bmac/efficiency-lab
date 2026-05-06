@@ -9,8 +9,11 @@ export const assets = createAssetServer({
   },
   allow: [
     'app/assets/**',
+    'app/stats.ts',
     'app/ui/prompt-button.tsx',
+    'app/ui/control-chart.tsx',
     'app/controllers/red-beads/**',
+    'app/controllers/shewhart/**',
     'node_modules/**',
   ],
   deny: ['app/**/*.server.*'],

@@ -4,6 +4,7 @@ import { assets } from './assets.ts'
 import { auth } from './controllers/auth.tsx'
 import { home } from './controllers/home.tsx'
 import { redBeads } from './controllers/red-beads/controller.tsx'
+import { shewhart } from './controllers/shewhart/controller.tsx'
 import { routes } from './routes.ts'
 
 export const router = createRouter()
@@ -16,3 +17,4 @@ router.get(routes.assets, async ({ request }) => {
 router.map(routes.home, home)
 router.map(routes.auth, auth)
 router.map(routes.redBeads, redBeads)
+router.map(routes.shewhart, shewhart)

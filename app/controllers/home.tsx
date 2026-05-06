@@ -29,7 +29,7 @@ const TOOLS: ToolEntry[] = [
   {
     href: '/shewhart',
     title: 'Shewhart Sandbox',
-    status: 'planned',
+    status: 'live',
     blurb:
       'Inject special-cause variation into a stable process. Practice ignoring noise. Western Electric rules.',
   },

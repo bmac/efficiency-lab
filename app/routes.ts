@@ -5,4 +5,5 @@ export const routes = route({
   home: '/',
   auth: '/auth',
   redBeads: '/red-beads',
+  shewhart: '/shewhart',
 })

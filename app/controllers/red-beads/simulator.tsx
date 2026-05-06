@@ -1,6 +1,6 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
-import { ControlChart } from './control-chart.tsx'
+import { ControlChart } from '../../ui/control-chart.tsx'
 import {
   drawBinomial,
   drawHypergeometric,
@@ -8,7 +8,7 @@ import {
   mulberry32,
   rangeOf,
   xbarRLimits,
-} from './stats.ts'
+} from '../../stats.ts'
 
 const DEFAULT_NAMES = ['Alex', 'Bao', 'Cris', 'Dani', 'Esai', 'Fadi']
 const EAGER_WORKER_PREFIX = 'Eager Worker'
