@@ -10,6 +10,7 @@ import {
   rangeOf,
   xbarRLimits,
 } from '../../stats.ts'
+import { computeLeaderboard, type LeaderboardEntry } from './leaderboard.ts'
 
 const DEFAULT_NAMES = ['Alex', 'Bao', 'Cris', 'Dani', 'Esai', 'Fadi']
 const EAGER_WORKER_PREFIX = 'Eager Worker'
@@ -110,26 +111,14 @@ export const RedBeadSimulator = clientEntry(
       handle.update()
     }
 
-    function cumulativeReds(name: string): number {
-      let total = 0
-      for (let r of rounds) {
-        for (let d of r) {
-          if (d.workerName === name) total += d.redCount
-        }
-      }
-      return total
-    }
-
-    function leaderboard(): { name: string; total: number; rank: number }[] {
-      let entries = workers.map((w) => ({ name: w.name, total: cumulativeReds(w.name) }))
-      entries.sort((a, b) => a.total - b.total)
-      return entries.map((e, i) => ({ ...e, rank: i + 1 }))
-    }
-
     function fireBottom() {
       if (workers.length === 0) return
-      let board = leaderboard()
-      let bottom = board[board.length - 1]
+      let board = computeLeaderboard(workers, rounds)
+      // Only fire someone who has actually been measured. A brand-new hire
+      // with zero rounds isn't comparable to anyone.
+      let ranked = board.filter((e) => e.rank != null)
+      if (ranked.length === 0) return
+      let bottom = ranked[ranked.length - 1]
       let newName = `${EAGER_WORKER_PREFIX} ${eagerCounter++}`
       workers = workers.map((w) =>
         w.name === bottom.name ? { name: newName, origin: 'replacement' } : w,
@@ -187,7 +176,7 @@ export const RedBeadSimulator = clientEntry(
       let perRoundMeans = rounds.map((r) => mean(r.map((d) => d.redCount)))
       let perRoundRanges = rounds.map((r) => rangeOf(r.map((d) => d.redCount)))
       let limits = xbarRLimits(rounds.map((r) => r.map((d) => d.redCount)))
-      let board = leaderboard()
+      let board = computeLeaderboard(workers, rounds)
       let totalScoops = rounds.length * workers.length
       let totalReds = rounds.reduce((s, r) => s + r.reduce((s2, d) => s2 + d.redCount, 0), 0)
       let observedRedFraction = totalScoops > 0 ? totalReds / (totalScoops * config.paddleSize) : 0
@@ -493,7 +482,7 @@ function Jar(handle: Handle<{ redFraction: number }>) {
 function WorkerRow(
   handle: Handle<{
     workers: Worker[]
-    board: { name: string; total: number; rank: number }[]
+    board: LeaderboardEntry[]
     lastRound?: Round
   }>,
 ) {
