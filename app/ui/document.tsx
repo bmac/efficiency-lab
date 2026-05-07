@@ -1,13 +1,14 @@
 import { css, type RemixNode } from 'remix/ui'
 
 import { routes } from '../routes.ts'
+import { T } from './shell.tsx'
 
 export interface DocumentProps {
   children?: RemixNode
   title?: string
 }
 
-const DEFAULT_TITLE = decodeURIComponent('Efficiency%20Lab')
+const DEFAULT_TITLE = 'Efficiency Lab'
 
 export function Document() {
   return ({ title = DEFAULT_TITLE, children }: DocumentProps) => (
@@ -16,6 +17,12 @@ export function Document() {
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>{title}</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          rel="stylesheet"
+          href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&family=JetBrains+Mono:wght@400;500;700&display=swap"
+        />
       </head>
       <body mix={bodyStyle}>
         {children}
@@ -27,8 +34,6 @@ export function Document() {
 
 const bodyStyle = css({
   margin: 0,
-  background: '#dee2e6',
-  '@media (prefers-color-scheme: dark)': {
-    background: '#1e2226',
-  },
+  background: T.paper,
+  color: T.ink,
 })

@@ -16,9 +16,10 @@ describe('router', () => {
   it('GET / returns the lab index', async () => {
     let { status, body } = await get(routes.home.href())
     assert.equal(status, 200)
-    assert.match(body, /Origins of Efficiency Lab/)
-    assert.match(body, /Red Bead Experiment/)
-    assert.match(body, /Shewhart Sandbox/)
+    assert.match(body, /Efficiency Lab/)
+    assert.match(body, /Catalog of sheets/)
+    assert.match(body, /Red Bead/)
+    assert.match(body, /Shewhart/)
     assert.match(body, /Pin Factory/)
   })
 
@@ -26,8 +27,8 @@ describe('router', () => {
     let { status, body } = await get(routes.redBeads.href())
     assert.equal(status, 200)
     assert.match(body, /Red Bead Experiment/)
-    assert.match(body, /Run round/)
-    assert.match(body, /Willing Workers/)
+    assert.match(body, /Run round/i)
+    assert.match(body, /willing workers/i)
   })
 
   it('GET /shewhart renders the sandbox', async () => {

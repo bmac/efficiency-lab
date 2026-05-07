@@ -1,5 +1,7 @@
 import { css, type Handle } from 'remix/ui'
 
+import { T } from '../../ui/shell.tsx'
+
 export interface SparklineProps {
   label: string
   unit: string
@@ -17,7 +19,7 @@ export function Sparkline(handle: Handle<SparklineProps>) {
   return () => {
     let { label, unit, value, formatValue, series, windowSeconds, yMin, yMax } = handle.props
     let height = handle.props.height ?? 56
-    let color = handle.props.color ?? 'var(--brand-blue)'
+    let color = handle.props.color ?? T.ink
     let width = 360
     let pad = 4
 
@@ -64,8 +66,8 @@ const wrapStyle = css({
   display: 'flex',
   flexDirection: 'column',
   gap: '4px',
-  background: 'var(--surface-4)',
-  borderRadius: '8px',
+  border: `1px solid ${T.ink}`,
+  background: T.panel,
   padding: '10px 12px',
 })
 
@@ -76,23 +78,26 @@ const headerStyle = css({
 })
 
 const labelStyle = css({
-  fontSize: '11px',
+  fontSize: '10px',
   fontWeight: 700,
   textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
+  letterSpacing: '0.14em',
+  color: T.ink,
+  opacity: 0.7,
 })
 
 const valueStyle = css({
   fontSize: '14px',
   fontWeight: 700,
-  color: 'var(--text-primary)',
+  color: T.accent,
+  letterSpacing: '0.02em',
 })
 
 const unitStyle = css({
   fontSize: '10px',
   fontWeight: 400,
-  color: 'var(--text-tertiary)',
+  color: T.ink,
+  opacity: 0.6,
   marginLeft: '2px',
 })
 

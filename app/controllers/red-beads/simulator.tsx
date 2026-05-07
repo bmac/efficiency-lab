@@ -1,7 +1,5 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
-import { routes } from '../../routes.ts'
-import { ControlChart } from '../../ui/control-chart.tsx'
 import {
   drawBinomial,
   drawHypergeometric,
@@ -10,10 +8,19 @@ import {
   rangeOf,
   xbarRLimits,
 } from '../../stats.ts'
+import { ControlChart } from '../../ui/control-chart.tsx'
+import {
+  DraftingButton,
+  FieldSlider,
+  Panel,
+  Readout,
+  SheetHeader,
+  T,
+} from '../../ui/shell.tsx'
 import { computeLeaderboard, type LeaderboardEntry } from './leaderboard.ts'
 
-const DEFAULT_NAMES = ['Alex', 'Bao', 'Cris', 'Dani', 'Esai', 'Fadi']
-const EAGER_WORKER_PREFIX = 'Eager Worker'
+const DEFAULT_NAMES = ['ALEX', 'BAO', 'CRIS', 'DANI', 'ESAI', 'FADI']
+const EAGER_WORKER_PREFIX = 'EAGER'
 
 interface Worker {
   name: string
@@ -76,36 +83,25 @@ export const RedBeadSimulator = clientEntry(
       handle.update()
     }
 
-    function runRound() {
+    function draw(): number {
       let N = config.totalBeads
       let K = Math.round(N * config.redFraction)
       let n = Math.min(config.paddleSize, N)
-      let p = config.redFraction
-      let draws: Draw[] = workers.map((w) => ({
-        workerName: w.name,
-        redCount: config.withReplacement
-          ? drawBinomial(prng, n, p)
-          : drawHypergeometric(prng, N, K, n),
-      }))
-      rounds = [...rounds, draws]
+      return config.withReplacement
+        ? drawBinomial(prng, n, config.redFraction)
+        : drawHypergeometric(prng, N, K, n)
+    }
+
+    function runRound() {
+      let next: Round = workers.map((w) => ({ workerName: w.name, redCount: draw() }))
+      rounds = [...rounds, next]
       handle.update()
     }
 
     function runFour() {
       let next: Round[] = [...rounds]
-      let N = config.totalBeads
-      let K = Math.round(N * config.redFraction)
-      let n = Math.min(config.paddleSize, N)
-      let p = config.redFraction
       for (let i = 0; i < 4; i++) {
-        next.push(
-          workers.map((w) => ({
-            workerName: w.name,
-            redCount: config.withReplacement
-              ? drawBinomial(prng, n, p)
-              : drawHypergeometric(prng, N, K, n),
-          })),
-        )
+        next.push(workers.map((w) => ({ workerName: w.name, redCount: draw() })))
       }
       rounds = next
       handle.update()
@@ -114,12 +110,10 @@ export const RedBeadSimulator = clientEntry(
     function fireBottom() {
       if (workers.length === 0) return
       let board = computeLeaderboard(workers, rounds)
-      // Only fire someone who has actually been measured. A brand-new hire
-      // with zero rounds isn't comparable to anyone.
       let ranked = board.filter((e) => e.rank != null)
       if (ranked.length === 0) return
       let bottom = ranked[ranked.length - 1]
-      let newName = `${EAGER_WORKER_PREFIX} ${eagerCounter++}`
+      let newName = `${EAGER_WORKER_PREFIX}-${eagerCounter++}`
       workers = workers.map((w) =>
         w.name === bottom.name ? { name: newName, origin: 'replacement' } : w,
       )
@@ -144,7 +138,7 @@ export const RedBeadSimulator = clientEntry(
       let last = rounds[rounds.length - 1]
       let best = last.reduce((a, b) => (a.redCount <= b.redCount ? a : b))
       logIntervention(
-        `Round ${rounds.length}: praised ${best.workerName} (only ${best.redCount} reds). Keep it up!`,
+        `Round ${rounds.length}: praised ${best.workerName} (only ${best.redCount} reds).`,
         'praise',
       )
     }
@@ -154,7 +148,7 @@ export const RedBeadSimulator = clientEntry(
       let last = rounds[rounds.length - 1]
       let worst = last.reduce((a, b) => (a.redCount >= b.redCount ? a : b))
       logIntervention(
-        `Round ${rounds.length}: scolded ${worst.workerName} (${worst.redCount} reds). Try harder!`,
+        `Round ${rounds.length}: scolded ${worst.workerName} (${worst.redCount} reds). Try harder.`,
         'scold',
       )
     }
@@ -179,249 +173,231 @@ export const RedBeadSimulator = clientEntry(
       let board = computeLeaderboard(workers, rounds)
       let totalScoops = rounds.length * workers.length
       let totalReds = rounds.reduce((s, r) => s + r.reduce((s2, d) => s2 + d.redCount, 0), 0)
-      let observedRedFraction = totalScoops > 0 ? totalReds / (totalScoops * config.paddleSize) : 0
+      let observedRedFraction =
+        totalScoops > 0 ? totalReds / (totalScoops * config.paddleSize) : 0
       let outOfControl = rounds.flatMap((_, i) =>
         perRoundMeans[i] > limits.uclX || perRoundMeans[i] < limits.lclX ? [i] : [],
       )
       let targetFailures = rounds.flatMap((r) =>
         r.filter((d) => d.redCount > config.target),
       ).length
+      let lastRound = rounds[rounds.length - 1]
+      let expectedReds = config.paddleSize * config.redFraction
 
       return (
         <article mix={pageStyle}>
-          <header mix={headerStyle}>
-            <a href={routes.home.href()} mix={backLinkStyle}>
-              ← All tools
-            </a>
-            <h1 mix={titleStyle}>The Red Bead Experiment</h1>
-            <p mix={subtitleStyle}>
-              Six "Willing Workers" each scoop {config.paddleSize} beads from a jar of{' '}
-              {config.totalBeads.toLocaleString()} beads,{' '}
-              {Math.round(config.redFraction * 100)}% of which are red. Red beads are defects.
-              The defect rate is a property of the jar, not the worker.
-            </p>
-          </header>
+          <SheetHeader
+            fig="Fig. 1.0 — Deming apparatus"
+            title="The Red Bead Experiment"
+            subtitle={`Six willing workers each scoop ${config.paddleSize} beads from a jar of ${config.totalBeads.toLocaleString()} beads, ${Math.round(config.redFraction * 100)}% of which are red. Red beads are defects. The defect rate is a property of the jar, not the worker.`}
+          />
 
-          <section mix={controlBarStyle}>
-            <div mix={buttonRowStyle}>
-              <button
-                type="button"
-                mix={[primaryButtonStyle, on('click', runRound)]}
-              >
-                Run round
-              </button>
-              <button
-                type="button"
-                mix={[secondaryButtonStyle, on('click', runFour)]}
-              >
-                Run 4 rounds
-              </button>
-              <button
-                type="button"
-                mix={[ghostButtonStyle, on('click', reset)]}
-              >
-                Reset
-              </button>
-              <span mix={roundCounterStyle}>
-                Round {rounds.length}
-              </span>
-            </div>
-          </section>
+          <div mix={twoColStyle}>
+            <div mix={mainColumnStyle}>
+              <Panel label="Jar · Section A-A" padding={20}>
+                <Jar
+                  redFraction={config.redFraction}
+                  paddleSize={config.paddleSize}
+                  totalBeads={config.totalBeads}
+                />
+              </Panel>
 
-          <section mix={mainGridStyle}>
-            <div mix={leftColumnStyle}>
-              <Jar redFraction={config.redFraction} />
-
-              <WorkerRow workers={workers} board={board} lastRound={rounds[rounds.length - 1]} />
+              <Panel label="Tally · Operators OP-01 … OP-06" padding={20}>
+                <WorkerRow
+                  workers={workers}
+                  board={board}
+                  lastRound={lastRound}
+                  rounds={rounds}
+                  expectedReds={expectedReds}
+                />
+                <div mix={tallyFootStyle}>
+                  <span>
+                    {rounds.length ? `${rounds.length} rounds run` : 'Awaiting first round'}
+                  </span>
+                  <span>Note — rank order is noise. Re-seed to re-rank.</span>
+                </div>
+              </Panel>
 
               {rounds.length > 0 && (
-                <RoundTable
-                  rounds={rounds}
-                  workerNames={workerNames}
-                  perRoundMeans={perRoundMeans}
-                  perRoundRanges={perRoundRanges}
-                  target={config.target}
-                />
+                <Panel label="Round table" padding={18}>
+                  <RoundTable
+                    rounds={rounds}
+                    workerNames={workerNames}
+                    perRoundMeans={perRoundMeans}
+                    perRoundRanges={perRoundRanges}
+                    target={config.target}
+                  />
+                </Panel>
               )}
 
               {rounds.length >= 2 && (
-                <div mix={chartGridStyle}>
+                <Panel label="Fig. 1.1 — Defects per round (X̄ chart)" padding={20}>
                   <ControlChart
-                    title={`X̄ chart — mean reds per round (n=${workers.length})`}
+                    title=""
                     points={perRoundMeans}
                     cl={limits.xbar}
                     ucl={limits.uclX}
                     lcl={limits.lclX}
                     yLabel="Mean reds"
+                    xLabel="Round"
                   />
+                </Panel>
+              )}
+
+              {rounds.length >= 2 && (
+                <Panel label="Fig. 1.2 — Range per round (R chart)" padding={20}>
                   <ControlChart
-                    title="R chart — range of reds per round"
+                    title=""
                     points={perRoundRanges}
                     cl={limits.rbar}
                     ucl={limits.uclR}
                     lcl={limits.lclR}
                     yLabel="Range"
+                    xLabel="Round"
                   />
-                </div>
+                </Panel>
               )}
 
               {rounds.length >= 4 && (
-                <Verdict
-                  observedRedFraction={observedRedFraction}
-                  configuredRedFraction={config.redFraction}
-                  outOfControlCount={outOfControl.length}
-                  totalRounds={rounds.length}
-                  targetFailures={targetFailures}
-                  target={config.target}
-                  paddleSize={config.paddleSize}
-                />
+                <Panel label="Verdict" padding={20}>
+                  <Verdict
+                    observedRedFraction={observedRedFraction}
+                    configuredRedFraction={config.redFraction}
+                    outOfControlCount={outOfControl.length}
+                    totalRounds={rounds.length}
+                    targetFailures={targetFailures}
+                    target={config.target}
+                    workerCount={workers.length}
+                  />
+                </Panel>
               )}
             </div>
 
-            <aside mix={rightColumnStyle}>
-              <Panel title="Process parameters">
-                <Field label={`Paddle size: ${config.paddleSize}`}>
+            <aside mix={asideStyle}>
+              <Panel label="Controls · Panel B" padding={16}>
+                <FieldSlider
+                  label="Paddle size"
+                  unit="beads"
+                  value={config.paddleSize}
+                  min={10}
+                  max={120}
+                  step={1}
+                  onChange={(v) => {
+                    config.paddleSize = v
+                    handle.update()
+                  }}
+                />
+                <FieldSlider
+                  label="Red fraction"
+                  value={config.redFraction}
+                  min={0.05}
+                  max={0.6}
+                  step={0.01}
+                  format={(v) => `${(v * 100).toFixed(0)}%`}
+                  onChange={(v) => {
+                    config.redFraction = v
+                    handle.update()
+                  }}
+                />
+                <FieldSlider
+                  label="Seed"
+                  value={config.seed}
+                  min={1}
+                  max={9999}
+                  step={1}
+                  format={(v) => String(Math.round(v)).padStart(5, '0')}
+                  onChange={(v) => setSeed(Math.round(v))}
+                />
+                <label mix={checkboxRowStyle}>
                   <input
-                    type="range"
-                    min="10"
-                    max="200"
-                    step="1"
-                    value={String(config.paddleSize)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.paddleSize = Number(event.currentTarget.value)
-                        handle.update()
-                      }),
-                    ]}
+                    type="checkbox"
+                    checked={config.withReplacement}
+                    mix={on('change', (event) => {
+                      config.withReplacement = event.currentTarget.checked
+                      handle.update()
+                    })}
                   />
-                </Field>
-                <Field
-                  label={`Red fraction: ${(config.redFraction * 100).toFixed(0)}%`}
-                >
-                  <input
-                    type="range"
-                    min="5"
-                    max="50"
-                    step="1"
-                    value={String(Math.round(config.redFraction * 100))}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.redFraction = Number(event.currentTarget.value) / 100
-                        handle.update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                <Field label="Sampling">
-                  <label mix={checkboxLabelStyle}>
-                    <input
-                      type="checkbox"
-                      checked={config.withReplacement}
-                      mix={on('change', (event) => {
-                        config.withReplacement = event.currentTarget.checked
-                        handle.update()
-                      })}
-                    />
-                    With replacement (binomial)
-                  </label>
-                </Field>
-                <Field label={`Seed: ${config.seed}`}>
-                  <input
-                    type="number"
-                    value={String(config.seed)}
-                    mix={[
-                      numberInputStyle,
-                      on('change', (event) => {
-                        let n = Number(event.currentTarget.value)
-                        if (Number.isFinite(n)) setSeed(n)
-                      }),
-                    ]}
-                  />
-                </Field>
+                  <span>With replacement (binomial)</span>
+                </label>
+                <DraftingButton primary full onClick={runRound}>
+                  ▶ Run round
+                </DraftingButton>
+                <div mix={twoButtonRowStyle}>
+                  <DraftingButton onClick={runFour}>Run × 4</DraftingButton>
+                  <DraftingButton onClick={reset}>Reset</DraftingButton>
+                </div>
               </Panel>
 
-              <Panel title="Management interventions">
-                <p mix={panelHintStyle}>
-                  Try them. None of these change the math — they only change the chart's narrative.
-                </p>
-                <div mix={interventionGridStyle}>
-                  <button
-                    type="button"
-                    mix={[ghostButtonStyle, on('click', praiseBest)]}
-                    disabled={rounds.length === 0}
-                  >
+              <Panel label="Live readout" padding={16}>
+                <Readout k="Rounds" v={rounds.length} />
+                <Readout k="Observed" v={`${(observedRedFraction * 100).toFixed(2)}%`} accent />
+                <Readout k="Expected" v={`${(config.redFraction * 100).toFixed(2)}%`} />
+                <Readout k="Defects" v={`${totalReds} / ${totalScoops * config.paddleSize}`} />
+                <Readout k="Over target" v={`${targetFailures} / ${totalScoops}`} />
+              </Panel>
+
+              <Panel label="Interventions" padding={16}>
+                <FieldSlider
+                  label="Target"
+                  unit="reds/scoop"
+                  value={config.target}
+                  min={0}
+                  max={40}
+                  step={1}
+                  onChange={(v) => {
+                    config.target = v
+                    handle.update()
+                  }}
+                />
+                <div mix={twoButtonRowStyle}>
+                  <DraftingButton onClick={praiseBest} disabled={rounds.length === 0}>
                     Praise best
-                  </button>
-                  <button
-                    type="button"
-                    mix={[ghostButtonStyle, on('click', scoldWorst)]}
-                    disabled={rounds.length === 0}
-                  >
+                  </DraftingButton>
+                  <DraftingButton onClick={scoldWorst} disabled={rounds.length === 0}>
                     Scold worst
-                  </button>
-                  <button
-                    type="button"
-                    mix={[ghostButtonStyle, on('click', fireBottom)]}
-                    disabled={rounds.length === 0}
-                  >
-                    Fire bottom worker
-                  </button>
-                  <button
-                    type="button"
-                    mix={[ghostButtonStyle, on('click', postPoster)]}
-                  >
-                    Hang inspirational poster
-                  </button>
+                  </DraftingButton>
+                  <DraftingButton onClick={fireBottom} disabled={rounds.length === 0}>
+                    Fire last
+                  </DraftingButton>
+                  <DraftingButton onClick={postPoster}>Hang poster</DraftingButton>
                 </div>
-                <Field label={`Target: ≤ ${config.target} reds per scoop`}>
-                  <input
-                    type="range"
-                    min="0"
-                    max="40"
-                    step="1"
-                    value={String(config.target)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.target = Number(event.currentTarget.value)
-                        handle.update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                {rounds.length > 0 && (
-                  <p mix={panelStatStyle}>
-                    {targetFailures} of {totalScoops} scoops failed the target.
-                  </p>
-                )}
+                <div mix={hintStyle}>⚠ None of these alter the math. Chart narrative only.</div>
               </Panel>
 
               {interventions.length > 0 && (
-                <Panel title="Intervention log">
+                <Panel label="Intervention log" padding={16}>
                   <ol mix={logListStyle}>
-                    {interventions.map((iv, i) => (
-                      <li key={`iv-${i}`} mix={logItemStyle}>
-                        <span mix={logKindStyle(iv.kind)}>{iv.kind}</span>
-                        <span>{iv.text}</span>
-                      </li>
-                    ))}
+                    {interventions
+                      .slice()
+                      .reverse()
+                      .map((iv, i) => (
+                        <li key={`iv-${interventions.length - i}`} mix={logItemStyle}>
+                          <span mix={logKindStyle(iv.kind)}>{iv.kind}</span>
+                          <span>{iv.text}</span>
+                        </li>
+                      ))}
                   </ol>
                 </Panel>
               )}
+
+              <Panel label="Drafting note" padding={16}>
+                <div mix={noteStyle}>
+                  Whichever operator drew the most red beads this round is no better and no
+                  worse than any other. The jar made them all. The lesson is to fix the jar.
+                </div>
+              </Panel>
             </aside>
-          </section>
+          </div>
         </article>
       )
     }
   },
 )
 
-function Jar(handle: Handle<{ redFraction: number }>) {
+function Jar(handle: Handle<{ redFraction: number; paddleSize: number; totalBeads: number }>) {
   return () => {
-    let { redFraction } = handle.props
-    let cols = 24
+    let { redFraction, paddleSize, totalBeads } = handle.props
+    let cols = 28
     let rows = 8
     let total = cols * rows
     let reds = Math.round(total * redFraction)
@@ -430,18 +406,8 @@ function Jar(handle: Handle<{ redFraction: number }>) {
     let cellSize = r * 2 + gap
     let w = cols * cellSize
     let h = rows * cellSize
-    let jitter = 3
 
-    // Seeded so SSR and client hydration produce identical layouts. Calling the
-    // same operations in the same order each render keeps positions stable; only
-    // the red/white assignment moves when redFraction changes.
     let rand = mulberry32(0xbead5)
-    let dx: number[] = []
-    let dy: number[] = []
-    for (let i = 0; i < total; i++) {
-      dx.push((rand() * 2 - 1) * jitter)
-      dy.push((rand() * 2 - 1) * jitter)
-    }
     let order: number[] = Array.from({ length: total }, (_, i) => i)
     for (let i = total - 1; i > 0; i--) {
       let j = Math.floor(rand() * (i + 1))
@@ -453,27 +419,43 @@ function Jar(handle: Handle<{ redFraction: number }>) {
     for (let i = 0; i < reds; i++) isRed[order[i]] = true
 
     return (
-      <div mix={jarWrapStyle}>
-        <svg viewBox={`0 0 ${w} ${h}`} width="100%" mix={jarSvgStyle}>
-          {Array.from({ length: total }).map((_, i) => {
-            let col = i % cols
-            let row = Math.floor(i / cols)
-            return (
-              <circle
-                key={`b-${i}`}
-                cx={col * cellSize + r + dx[i]}
-                cy={row * cellSize + r + dy[i]}
-                r={r}
-                fill={isRed[i] ? '#ff5148' : 'var(--surface-0)'}
-                stroke="var(--text-tertiary)"
-                stroke-opacity="0.25"
-              />
-            )
-          })}
-        </svg>
-        <p mix={jarCaptionStyle}>
-          The jar (illustrative; the simulation samples from {Math.round(redFraction * 100)}% red).
-        </p>
+      <div mix={jarRowStyle}>
+        <div mix={jarMainStyle}>
+          <svg viewBox={`0 0 ${w} ${h}`} mix={jarSvgStyle}>
+            {Array.from({ length: total }).map((_, i) => {
+              let col = i % cols
+              let row = Math.floor(i / cols)
+              return (
+                <circle
+                  key={`b-${i}`}
+                  cx={col * cellSize + r}
+                  cy={row * cellSize + r}
+                  r={r - 1}
+                  fill={isRed[i] ? T.accent : 'none'}
+                  stroke={T.ink}
+                  stroke-width="0.6"
+                  opacity={isRed[i] ? 1 : 0.55}
+                />
+              )
+            })}
+          </svg>
+          <div mix={dimensionRowStyle}>
+            <div mix={dimensionLineStyle} />
+            <div mix={dimensionTickLeftStyle} />
+            <div mix={dimensionTickRightStyle} />
+            <div mix={dimensionLabelStyle}>
+              APPROX. {Math.round(redFraction * 100)}% RED · Ø3.0 mm typ.
+            </div>
+          </div>
+        </div>
+        <div mix={jarStatsStyle}>
+          <div mix={jarStatLabelStyle}>Population</div>
+          <div mix={jarStatValueStyle}>{Math.round(redFraction * totalBeads)}</div>
+          <div mix={jarStatHintStyle}>red of {totalBeads}</div>
+          <div mix={jarStatLabelTopStyle}>Paddle size</div>
+          <div mix={jarStatValueSmStyle}>{paddleSize}</div>
+          <div mix={jarStatHintStyle}>beads / scoop</div>
+        </div>
       </div>
     )
   }
@@ -484,36 +466,58 @@ function WorkerRow(
     workers: Worker[]
     board: LeaderboardEntry[]
     lastRound?: Round
+    rounds: Round[]
+    expectedReds: number
   }>,
 ) {
   return () => {
-    let { workers, board, lastRound } = handle.props
+    let { workers, board, lastRound, rounds, expectedReds } = handle.props
     let rankByName = new Map(board.map((b) => [b.name, b.rank]))
+    let totalByName = new Map(board.map((b) => [b.name, b.total]))
     let lastByName = new Map((lastRound ?? []).map((d) => [d.workerName, d.redCount]))
+    let maxLast = Math.max(1, ...(lastRound ?? []).map((d) => d.redCount), expectedReds)
+
     return (
-      <ul mix={workerRowStyle}>
-        {workers.map((w) => {
+      <div mix={tallyGridStyle}>
+        {workers.map((w, i) => {
           let rank = rankByName.get(w.name)
           let last = lastByName.get(w.name)
+          let total = totalByName.get(w.name) ?? 0
           return (
-            <li key={`w-${w.name}`} mix={workerCardStyle}>
-              <div mix={workerNameRowStyle}>
-                <span mix={workerNameStyle}>{w.name}</span>
-                {w.origin === 'replacement' && <span mix={tagStyle}>new</span>}
+            <div key={`w-${w.name}`} mix={tallyCardStyle}>
+              <div mix={tallyHeaderStyle}>
+                <span>OP-{String(i + 1).padStart(2, '0')}</span>
+                {rank != null && <span mix={tallyRankStyle}>RANK #{rank}</span>}
               </div>
-              <div mix={workerStatsRowStyle}>
-                <span>
-                  Total: <strong>{board.find((b) => b.name === w.name)?.total ?? 0}</strong>
-                </span>
-                {rank != null && <span>Rank #{rank}</span>}
+              <div mix={tallyNameStyle}>
+                {w.name}
+                {w.origin === 'replacement' && <span mix={tallyTagStyle}> · NEW</span>}
               </div>
-              {last != null && (
-                <div mix={workerLastStyle}>Last round: {last} reds</div>
-              )}
-            </li>
+              <div mix={tallyMicroLabelStyle}>TOTAL</div>
+              <div mix={tallyTotalStyle}>{total}</div>
+              <div mix={tallyMicroLabelStyle}>LAST</div>
+              <div mix={tallyLastStyle}>{rounds.length ? (last ?? 0) : '—'}</div>
+              <div mix={tallyHistRowStyle}>
+                {Array.from({ length: 16 }).map((_, j) => {
+                  let r = rounds[rounds.length - 16 + j]
+                  let val = r?.find((d) => d.workerName === w.name)?.redCount
+                  return (
+                    <div
+                      key={`h-${i}-${j}`}
+                      mix={val == null ? tallyHistEmptyStyle : tallyHistBarStyle}
+                      style={
+                        val == null
+                          ? undefined
+                          : { height: `${Math.max(2, (val / maxLast) * 18)}px` }
+                      }
+                    />
+                  )
+                })}
+              </div>
+            </div>
           )
         })}
-      </ul>
+      </div>
     )
   }
 }
@@ -530,44 +534,46 @@ function RoundTable(
   return () => {
     let { rounds, workerNames, perRoundMeans, perRoundRanges, target } = handle.props
     return (
-      <table mix={tableStyle}>
-        <thead>
-          <tr>
-            <th mix={thStyle}>Round</th>
-            {workerNames.map((n) => (
-              <th key={`th-${n}`} mix={thStyle}>
-                {n}
-              </th>
-            ))}
-            <th mix={thStyle}>Mean</th>
-            <th mix={thStyle}>Range</th>
-          </tr>
-        </thead>
-        <tbody>
-          {rounds.map((r, i) => {
-            let byName = new Map(r.map((d) => [d.workerName, d.redCount]))
-            return (
-              <tr key={`r-${i}`}>
-                <td mix={tdStyle}>{i + 1}</td>
-                {workerNames.map((n) => {
-                  let v = byName.get(n) ?? 0
-                  return (
-                    <td
-                      key={`r-${i}-${n}`}
-                      mix={tdStyle}
-                      style={{ color: v > target ? '#ff5148' : undefined }}
-                    >
-                      {v}
-                    </td>
-                  )
-                })}
-                <td mix={tdStyle}>{perRoundMeans[i].toFixed(2)}</td>
-                <td mix={tdStyle}>{perRoundRanges[i]}</td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      <div mix={tableScrollStyle}>
+        <table mix={tableStyle}>
+          <thead>
+            <tr>
+              <th mix={thStyle}>Round</th>
+              {workerNames.map((n) => (
+                <th key={`th-${n}`} mix={thStyle}>
+                  {n}
+                </th>
+              ))}
+              <th mix={thStyle}>Mean</th>
+              <th mix={thStyle}>Range</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rounds.map((r, i) => {
+              let byName = new Map(r.map((d) => [d.workerName, d.redCount]))
+              return (
+                <tr key={`r-${i}`}>
+                  <td mix={tdStyle}>{i + 1}</td>
+                  {workerNames.map((n) => {
+                    let v = byName.get(n) ?? 0
+                    return (
+                      <td
+                        key={`r-${i}-${n}`}
+                        mix={tdStyle}
+                        style={v > target ? { color: T.accent, fontWeight: 700 } : undefined}
+                      >
+                        {v}
+                      </td>
+                    )
+                  })}
+                  <td mix={tdStyle}>{perRoundMeans[i].toFixed(2)}</td>
+                  <td mix={tdStyle}>{perRoundRanges[i]}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
     )
   }
 }
@@ -580,430 +586,350 @@ function Verdict(
     totalRounds: number
     targetFailures: number
     target: number
-    paddleSize: number
+    workerCount: number
   }>,
 ) {
   return () => {
     let p = handle.props
     return (
-      <section mix={verdictStyle}>
-        <h2 mix={verdictTitleStyle}>Verdict after {p.totalRounds} rounds</h2>
-        <p mix={verdictBodyStyle}>
-          Observed defect rate:{' '}
-          <strong>{(p.observedRedFraction * 100).toFixed(1)}%</strong>. Configured rate:{' '}
-          <strong>{(p.configuredRedFraction * 100).toFixed(1)}%</strong>.{' '}
+      <div mix={verdictBodyStyle}>
+        <p mix={verdictParaStyle}>
+          Observed defect rate: <strong>{(p.observedRedFraction * 100).toFixed(1)}%</strong>.
+          Configured rate: <strong>{(p.configuredRedFraction * 100).toFixed(1)}%</strong>.{' '}
           {p.outOfControlCount === 0
             ? 'Every round mean sits inside the X̄ control limits.'
             : `${p.outOfControlCount} of ${p.totalRounds} rounds fell outside the control limits — try more rounds or a different seed.`}
         </p>
-        <p mix={verdictBodyStyle}>
-          {p.targetFailures} of {p.totalRounds * 6} scoops "failed" the target of ≤ {p.target}{' '}
-          reds. Re-seed the run: the failures will follow the system, not the workers.
+        <p mix={verdictParaStyle}>
+          {p.targetFailures} of {p.totalRounds * p.workerCount} scoops "failed" the target of ≤{' '}
+          {p.target} reds. Re-seed the run: the failures will follow the system, not the workers.
         </p>
         <p mix={verdictKickerStyle}>
           No worker's performance is statistically distinguishable from any other.
         </p>
-      </section>
+      </div>
     )
   }
 }
 
-function Panel(handle: Handle<{ title: string; children?: unknown }>) {
-  return () => (
-    <section mix={panelStyle}>
-      <h2 mix={panelTitleStyle}>{handle.props.title}</h2>
-      <div mix={panelBodyStyle}>{handle.props.children as never}</div>
-    </section>
-  )
-}
-
-function Field(handle: Handle<{ label: string; children?: unknown }>) {
-  return () => (
-    <label mix={fieldStyle}>
-      <span mix={fieldLabelStyle}>{handle.props.label}</span>
-      {handle.props.children as never}
-    </label>
-  )
-}
+// -------------------------------------------------------------------------
+// Styles
+// -------------------------------------------------------------------------
 
 const pageStyle = css({
-  '--surface-0': '#dee2e6',
-  '--surface-3': '#f0f4f7',
-  '--surface-4': '#f7fbff',
-  '--text-primary': '#313539',
-  '--text-tertiary': '#6f757b',
-  '--brand-blue': '#2dacf9',
-  '@media (prefers-color-scheme: dark)': {
-    '--surface-0': '#1e2226',
-    '--surface-3': '#3a4148',
-    '--surface-4': '#4a525a',
-    '--text-primary': '#e8ecef',
-    '--text-tertiary': '#a8aeb3',
-  },
-  '& *, & *::before, & *::after': { boxSizing: 'border-box' },
-  fontFamily:
-    "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
-  color: 'var(--text-primary)',
-  background: 'var(--surface-0)',
-  minHeight: '100vh',
-  margin: 0,
-  padding: '32px clamp(16px, 4vw, 48px) 64px',
+  fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
+  color: T.ink,
   display: 'flex',
   flexDirection: 'column',
-  gap: '24px',
+  gap: '28px',
 })
 
-const headerStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
-  maxWidth: '720px',
-})
-
-const backLinkStyle = css({
-  alignSelf: 'flex-start',
-  fontSize: '12px',
-  color: 'var(--text-tertiary)',
-  textDecoration: 'none',
-  transition: 'color 120ms ease',
-  '&:hover, &:focus-visible': {
-    color: 'var(--brand-blue)',
-    outline: 'none',
-  },
-})
-
-const titleStyle = css({
-  margin: 0,
-  fontSize: '24px',
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-})
-
-const subtitleStyle = css({
-  margin: 0,
-  fontSize: '14px',
-  lineHeight: 1.6,
-  color: 'var(--text-tertiary)',
-})
-
-const controlBarStyle = css({
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '12px',
-  alignItems: 'center',
-})
-
-const buttonRowStyle = css({
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: '8px',
-  alignItems: 'center',
-})
-
-const baseButtonStyle = {
-  appearance: 'none',
-  font: 'inherit',
-  fontSize: '14px',
-  cursor: 'pointer',
-  padding: '10px 16px',
-  borderRadius: '8px',
-  border: 0,
-  transition: 'background-color 120ms ease, color 120ms ease',
-  '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
-} as const
-
-const primaryButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'var(--brand-blue)',
-  color: 'white',
-  fontWeight: 700,
-  '&:hover:not(:disabled)': { filter: 'brightness(1.05)' },
-})
-
-const secondaryButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'var(--surface-3)',
-  color: 'var(--text-primary)',
-  '&:hover:not(:disabled)': { background: 'var(--surface-4)' },
-})
-
-const ghostButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'transparent',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--surface-3)',
-  '&:hover:not(:disabled)': { background: 'var(--surface-4)' },
-})
-
-const roundCounterStyle = css({
-  marginLeft: '8px',
-  fontSize: '12px',
-  color: 'var(--text-tertiary)',
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-})
-
-const mainGridStyle = css({
+const twoColStyle = css({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, 1fr) 320px',
   gap: '24px',
-  '@media (max-width: 960px)': {
+  alignItems: 'flex-start',
+  '@media (max-width: 1100px)': {
     gridTemplateColumns: 'minmax(0, 1fr)',
   },
 })
 
-const leftColumnStyle = css({
+const mainColumnStyle = css({
   display: 'flex',
   flexDirection: 'column',
-  gap: '20px',
+  gap: '24px',
   minWidth: 0,
 })
 
-const rightColumnStyle = css({
+const asideStyle = css({
   display: 'flex',
   flexDirection: 'column',
   gap: '16px',
+  position: 'sticky',
+  top: '96px',
+  '@media (max-width: 1100px)': {
+    position: 'static',
+    top: 'auto',
+  },
 })
 
-const jarWrapStyle = css({
+const jarRowStyle = css({
   display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-  background: 'var(--surface-3)',
-  padding: '12px',
-  borderRadius: '12px',
+  gap: '20px',
+  alignItems: 'flex-start',
+  '@media (max-width: 720px)': { flexDirection: 'column' },
 })
 
-const jarSvgStyle = css({ display: 'block', maxWidth: '420px' })
+const jarMainStyle = css({ flex: 1, minWidth: 0 })
 
-const jarCaptionStyle = css({
-  margin: 0,
-  fontSize: '11px',
-  color: 'var(--text-tertiary)',
+const jarSvgStyle = css({
+  display: 'block',
+  width: '100%',
+  height: 'auto',
+  maxHeight: '180px',
 })
 
-const workerRowStyle = css({
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-  gap: '8px',
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
+const dimensionRowStyle = css({
+  marginTop: '14px',
+  position: 'relative',
+  height: '18px',
 })
 
-const workerCardStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '8px',
-  padding: '10px 12px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '4px',
+const dimensionLineStyle = css({
+  position: 'absolute',
+  left: 0,
+  right: 0,
+  top: '9px',
+  borderTop: `1px solid ${T.ink}`,
+  opacity: 0.6,
 })
 
-const workerNameRowStyle = css({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '6px',
+const dimensionTickLeftStyle = css({
+  position: 'absolute',
+  left: 0,
+  top: '4px',
+  height: '10px',
+  borderLeft: `1px solid ${T.ink}`,
+  opacity: 0.6,
 })
 
-const workerNameStyle = css({
-  fontWeight: 700,
-  fontSize: '13px',
+const dimensionTickRightStyle = css({
+  position: 'absolute',
+  right: 0,
+  top: '4px',
+  height: '10px',
+  borderRight: `1px solid ${T.ink}`,
+  opacity: 0.6,
 })
 
-const tagStyle = css({
-  fontSize: '9px',
+const dimensionLabelStyle = css({
+  position: 'absolute',
+  left: '50%',
+  top: 0,
+  transform: 'translateX(-50%)',
+  background: T.paper,
+  padding: '0 8px',
+  fontSize: '10px',
+  letterSpacing: '0.12em',
+})
+
+const jarStatsStyle = css({
+  width: '120px',
+  fontSize: '10px',
+  letterSpacing: '0.12em',
   textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  background: 'var(--brand-blue)',
-  color: 'white',
-  padding: '2px 6px',
-  borderRadius: '999px',
+  borderLeft: `1px dashed ${T.ink}`,
+  paddingLeft: '14px',
+  alignSelf: 'stretch',
 })
 
-const workerStatsRowStyle = css({
+const jarStatLabelStyle = css({ opacity: 0.7 })
+const jarStatLabelTopStyle = css({ opacity: 0.7, marginTop: '14px' })
+
+const jarStatValueStyle = css({
+  fontSize: '28px',
+  fontWeight: 700,
+  color: T.accent,
+  letterSpacing: 0,
+  lineHeight: 1,
+})
+
+const jarStatValueSmStyle = css({
+  fontSize: '24px',
+  fontWeight: 700,
+  color: T.accent,
+  letterSpacing: 0,
+  lineHeight: 1,
+})
+
+const jarStatHintStyle = css({ opacity: 0.6 })
+
+const tallyGridStyle = css({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(6, 1fr)',
+  gap: '8px',
+  '@media (max-width: 880px)': { gridTemplateColumns: 'repeat(3, 1fr)' },
+  '@media (max-width: 520px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
+})
+
+const tallyCardStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '12px',
+  position: 'relative',
+})
+
+const tallyHeaderStyle = css({
   display: 'flex',
   justifyContent: 'space-between',
-  fontSize: '11px',
-  color: 'var(--text-tertiary)',
+  fontSize: '9px',
+  opacity: 0.7,
+  letterSpacing: '0.14em',
 })
 
-const workerLastStyle = css({
-  fontSize: '11px',
-  color: 'var(--text-tertiary)',
+const tallyRankStyle = css({ color: T.accent, opacity: 1 })
+
+const tallyNameStyle = css({
+  fontSize: '15px',
+  fontWeight: 700,
+  marginTop: '4px',
+  letterSpacing: '0.02em',
+})
+
+const tallyTagStyle = css({
+  fontSize: '9px',
+  opacity: 0.7,
+  letterSpacing: '0.14em',
+})
+
+const tallyMicroLabelStyle = css({
+  marginTop: '8px',
+  fontSize: '9px',
+  letterSpacing: '0.14em',
+  opacity: 0.7,
+})
+
+const tallyTotalStyle = css({ fontSize: '20px', fontWeight: 700, lineHeight: 1 })
+const tallyLastStyle = css({ fontSize: '13px', fontWeight: 700, color: T.accent })
+
+const tallyHistRowStyle = css({
+  marginTop: '8px',
+  display: 'flex',
+  gap: '1px',
+  alignItems: 'flex-end',
+  height: '20px',
+  borderBottom: `1px solid ${T.ink}`,
+})
+
+const tallyHistBarStyle = css({ flex: 1, background: T.ink })
+const tallyHistEmptyStyle = css({ flex: 1, height: '1px', background: T.ruleFaint })
+
+const tallyFootStyle = css({
+  marginTop: '14px',
+  display: 'flex',
+  justifyContent: 'space-between',
+  fontSize: '10px',
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  opacity: 0.7,
+  gap: '12px',
+  flexWrap: 'wrap',
+})
+
+const tableScrollStyle = css({
+  overflowX: 'auto',
 })
 
 const tableStyle = css({
   width: '100%',
   borderCollapse: 'collapse',
-  fontSize: '12px',
-  background: 'var(--surface-4)',
-  borderRadius: '8px',
-  overflow: 'hidden',
+  fontSize: '11px',
+  fontVariantNumeric: 'tabular-nums',
 })
 
 const thStyle = css({
   textAlign: 'left',
-  padding: '8px 10px',
+  padding: '6px 8px',
   fontWeight: 700,
-  background: 'var(--surface-3)',
-  borderBottom: '1px solid var(--surface-0)',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  fontSize: '10px',
+  borderBottom: `1px solid ${T.ink}`,
 })
 
 const tdStyle = css({
-  padding: '6px 10px',
-  borderBottom: '1px solid var(--surface-3)',
+  padding: '5px 8px',
+  borderBottom: `1px dashed ${T.ink}`,
 })
 
-const chartGridStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const verdictStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '20px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
-  borderLeft: '4px solid var(--brand-blue)',
-})
-
-const verdictTitleStyle = css({
-  margin: 0,
-  fontSize: '16px',
-  fontWeight: 700,
-})
-
-const verdictBodyStyle = css({
-  margin: 0,
-  fontSize: '13px',
-  lineHeight: 1.6,
-})
-
-const verdictKickerStyle = css({
-  margin: '4px 0 0',
-  fontSize: '14px',
-  fontWeight: 700,
-  color: 'var(--brand-blue)',
-})
-
-const panelStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '16px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const panelTitleStyle = css({
-  margin: 0,
-  fontSize: '12px',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
-})
-
-const panelBodyStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const panelHintStyle = css({
-  margin: 0,
-  fontSize: '12px',
-  lineHeight: 1.5,
-  color: 'var(--text-tertiary)',
-})
-
-const panelStatStyle = css({
-  margin: 0,
-  fontSize: '12px',
-  color: 'var(--text-primary)',
-})
-
-const interventionGridStyle = css({
-  display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
-  gap: '8px',
-})
-
-const fieldStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-})
-
-const fieldLabelStyle = css({
-  fontSize: '12px',
-  color: 'var(--text-primary)',
-})
-
-const sliderStyle = css({
-  width: '100%',
-})
-
-const numberInputStyle = css({
-  appearance: 'none',
-  font: 'inherit',
-  fontSize: '13px',
-  padding: '8px 10px',
-  borderRadius: '6px',
-  border: '1px solid var(--surface-0)',
-  background: 'var(--surface-4)',
-  color: 'var(--text-primary)',
-})
-
-const checkboxLabelStyle = css({
+const checkboxRowStyle = css({
   display: 'flex',
   alignItems: 'center',
   gap: '8px',
-  fontSize: '12px',
-  color: 'var(--text-primary)',
+  fontSize: '11px',
+  letterSpacing: '0.04em',
+  marginBottom: '12px',
+  cursor: 'pointer',
+})
+
+const twoButtonRowStyle = css({
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: '4px',
+  marginTop: '6px',
+})
+
+const hintStyle = css({
+  marginTop: '12px',
+  fontSize: '10px',
+  opacity: 0.65,
+  lineHeight: 1.5,
+  letterSpacing: '0.04em',
+})
+
+const noteStyle = css({
+  fontSize: '11px',
+  lineHeight: 1.55,
 })
 
 const logListStyle = css({
   margin: 0,
-  paddingLeft: '0',
+  padding: 0,
   listStyle: 'none',
   display: 'flex',
   flexDirection: 'column',
-  gap: '6px',
-  maxHeight: '180px',
+  gap: '8px',
+  maxHeight: '220px',
   overflowY: 'auto',
 })
 
 const logItemStyle = css({
-  display: 'flex',
+  display: 'grid',
+  gridTemplateColumns: '64px 1fr',
   gap: '8px',
   fontSize: '11px',
   lineHeight: 1.4,
-  color: 'var(--text-primary)',
+  paddingTop: '6px',
+  borderTop: `1px dashed ${T.ink}`,
+  '&:first-child': { borderTop: 'none', paddingTop: 0 },
 })
 
 function logKindStyle(kind: Intervention['kind']) {
   let color =
     kind === 'fire'
-      ? '#ff5148'
+      ? T.accent
       : kind === 'praise'
-        ? '#80e464'
+        ? T.ink
         : kind === 'scold'
-          ? '#ffdf5f'
+          ? T.warn
           : kind === 'poster'
-            ? '#ff65db'
-            : 'var(--brand-blue)'
+            ? T.inkSoft
+            : T.ink
   return css({
     fontSize: '9px',
     textTransform: 'uppercase',
-    letterSpacing: '0.08em',
+    letterSpacing: '0.14em',
     color,
     fontWeight: 700,
-    flex: '0 0 auto',
     paddingTop: '2px',
   })
 }
+
+const verdictBodyStyle = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+})
+
+const verdictParaStyle = css({
+  margin: 0,
+  fontSize: '12px',
+  lineHeight: 1.6,
+})
+
+const verdictKickerStyle = css({
+  margin: '4px 0 0',
+  fontSize: '13px',
+  fontWeight: 700,
+  color: T.accent,
+  letterSpacing: '0.02em',
+})

@@ -1,5 +1,7 @@
 import { css, type Handle } from 'remix/ui'
 
+import { T } from './shell.tsx'
+
 export interface ChartZone {
   // Inner edge of the zone (closer to CL).
   inner: number
@@ -92,18 +94,11 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
         mix={css({
           display: 'block',
           maxWidth: `${width}px`,
-          background: 'var(--surface-4)',
-          borderRadius: '8px',
+          background: 'transparent',
         })}
       >
-        <text
-          x={pad.left}
-          y={20}
-          font-size="12"
-          fill="var(--text-primary)"
-          font-weight="700"
-        >
-          {title}
+        <text x={pad.left} y={20} font-size="11" fill={T.ink} font-weight="700" letter-spacing="0.06em">
+          {title.toUpperCase()}
         </text>
 
         {yTicks.map((t) => (
@@ -113,15 +108,17 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
               y1={yScale(t)}
               x2={pad.left + plotW}
               y2={yScale(t)}
-              stroke="var(--text-tertiary)"
-              stroke-opacity="0.18"
+              stroke={T.ink}
+              stroke-opacity="0.14"
+              stroke-width="0.4"
             />
             <text
               x={pad.left - 6}
               y={yScale(t) + 4}
               font-size="10"
               text-anchor="end"
-              fill="var(--text-tertiary)"
+              fill={T.ink}
+              opacity="0.7"
             >
               {t.toFixed(1)}
             </text>
@@ -135,16 +132,18 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
               y1={yScale(z.outer)}
               x2={pad.left + plotW}
               y2={yScale(z.outer)}
-              stroke="var(--text-tertiary)"
+              stroke={T.ink}
               stroke-dasharray="2 4"
               stroke-opacity="0.45"
+              stroke-width="0.6"
             />
             {z.label && (
               <text
                 x={pad.left + plotW + 6}
                 y={yScale(z.outer) + 3}
                 font-size="10"
-                fill="var(--text-tertiary)"
+                fill={T.ink}
+                opacity="0.7"
               >
                 {z.label}
               </text>
@@ -157,11 +156,11 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
           y1={yScale(ucl)}
           x2={pad.left + plotW}
           y2={yScale(ucl)}
-          stroke="#ff5148"
-          stroke-dasharray="4 4"
-          stroke-width="1"
+          stroke={T.accent}
+          stroke-dasharray="6 3"
+          stroke-width="0.9"
         />
-        <text x={pad.left + plotW + 6} y={yScale(ucl) + 3} font-size="10" fill="#ff5148">
+        <text x={pad.left + plotW + 6} y={yScale(ucl) + 3} font-size="10" fill={T.accent} font-weight="700">
           UCL {ucl.toFixed(2)}
         </text>
 
@@ -170,15 +169,11 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
           y1={yScale(cl)}
           x2={pad.left + plotW}
           y2={yScale(cl)}
-          stroke="var(--text-tertiary)"
-          stroke-width="1"
+          stroke={T.ink}
+          stroke-opacity="0.8"
+          stroke-width="0.7"
         />
-        <text
-          x={pad.left + plotW + 6}
-          y={yScale(cl) + 3}
-          font-size="10"
-          fill="var(--text-tertiary)"
-        >
+        <text x={pad.left + plotW + 6} y={yScale(cl) + 3} font-size="10" fill={T.ink} opacity="0.8">
           CL {cl.toFixed(2)}
         </text>
 
@@ -187,11 +182,11 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
           y1={yScale(lcl)}
           x2={pad.left + plotW}
           y2={yScale(lcl)}
-          stroke="#ff5148"
-          stroke-dasharray="4 4"
-          stroke-width="1"
+          stroke={T.accent}
+          stroke-dasharray="6 3"
+          stroke-width="0.9"
         />
-        <text x={pad.left + plotW + 6} y={yScale(lcl) + 3} font-size="10" fill="#ff5148">
+        <text x={pad.left + plotW + 6} y={yScale(lcl) + 3} font-size="10" fill={T.accent} font-weight="700">
           LCL {lcl.toFixed(2)}
         </text>
 
@@ -201,32 +196,44 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
             y1={pad.top}
             x2={xScale(baselineCutoff - 0.5)}
             y2={pad.top + plotH}
-            stroke="var(--brand-blue)"
+            stroke={T.ink}
             stroke-dasharray="2 3"
-            stroke-opacity="0.55"
+            stroke-opacity="0.4"
           />
         )}
 
-        {pathD && <path d={pathD} stroke="var(--brand-blue)" stroke-width="2" fill="none" />}
+        {pathD && <path d={pathD} stroke={T.ink} stroke-width="1.2" fill="none" />}
         {points.map((v, i) => {
           let flag = flags?.[i]
           let outOfControl = v > ucl + 1e-9 || v < lcl - 1e-9
-          let fill = flag?.color ?? (outOfControl ? '#ff5148' : 'var(--brand-blue)')
+          let fill = flag?.color ?? (outOfControl ? T.accent : T.accent)
           let tooltip =
             pointTooltips?.[i] ??
             `${xLabel ?? '#'} ${i + 1}: ${v.toFixed(2)}${flag ? ` — ${flag.tooltip}` : ''}`
+          let size = flag || outOfControl ? 4 : 3
           return (
-            <circle
-              key={`pt-${i}`}
-              cx={xScale(i)}
-              cy={yScale(v)}
-              r={flag ? 5 : 4}
-              fill={fill}
-              stroke={flag ? 'white' : 'none'}
-              stroke-width={flag ? 1 : 0}
-            >
+            <g key={`pt-${i}`}>
+              <rect
+                x={xScale(i) - size}
+                y={yScale(v) - size}
+                width={size * 2}
+                height={size * 2}
+                fill={fill}
+                stroke={T.ink}
+                stroke-width="0.6"
+              />
+              {(flag || outOfControl) && (
+                <circle
+                  cx={xScale(i)}
+                  cy={yScale(v)}
+                  r="9"
+                  fill="none"
+                  stroke={flag?.color ?? T.accent}
+                  stroke-width="1.2"
+                />
+              )}
               <title>{tooltip}</title>
-            </circle>
+            </g>
           )
         })}
 
@@ -239,7 +246,8 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
               y={pad.top + plotH + 14}
               font-size="10"
               text-anchor="middle"
-              fill="var(--text-tertiary)"
+              fill={T.ink}
+              opacity="0.7"
             >
               {i + 1}
             </text>
@@ -251,11 +259,13 @@ export function ControlChart(handle: Handle<ControlChartProps>) {
             x={12}
             y={pad.top + plotH / 2}
             transform={`rotate(-90 12 ${pad.top + plotH / 2})`}
-            font-size="11"
+            font-size="10"
             text-anchor="middle"
-            fill="var(--text-tertiary)"
+            fill={T.ink}
+            opacity="0.7"
+            letter-spacing="0.1em"
           >
-            {yLabel}
+            {yLabel.toUpperCase()}
           </text>
         )}
       </svg>

@@ -1,10 +1,10 @@
-import { Document } from '../../ui/document.tsx'
+import { Layout } from '../../ui/layout.tsx'
 import { FactoryFloor } from './factory-floor.tsx'
 
 export function PinFactoryPage() {
   return () => (
-    <Document title="Pin Factory — Efficiency Lab">
+    <Layout title="Pin Factory — Efficiency Lab" slug="pin-factory">
       <FactoryFloor />
-    </Document>
+    </Layout>
   )
 }

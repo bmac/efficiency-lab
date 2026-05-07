@@ -1,6 +1,5 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
-import { routes } from '../../routes.ts'
 import {
   WESTERN_ELECTRIC_RULES,
   detectWesternElectric,
@@ -10,35 +9,41 @@ import {
 } from '../../stats.ts'
 import { ControlChart, type PointFlag } from '../../ui/control-chart.tsx'
 import {
+  DraftingButton,
+  FieldSlider,
+  Panel,
+  Readout,
+  SheetHeader,
+  T,
+} from '../../ui/shell.tsx'
+import {
   describeInjection,
   generateSubgroups,
   type Injection,
   type InjectionKind,
-  type ProcessConfig,
 } from './process.ts'
 
 interface ShewhartSandboxProps extends SerializableProps {}
 
 const RULE_COLOR: Record<1 | 2 | 3 | 4, string> = {
-  1: '#ff5148',
-  2: '#ff65db',
-  3: '#ffdf5f',
-  4: '#80e464',
+  1: T.accent,
+  2: T.warn,
+  3: T.warn,
+  4: T.ink,
 }
 
 export const ShewhartSandbox = clientEntry(
   '/assets/app/controllers/shewhart/sandbox.tsx#ShewhartSandbox',
-  function ShewhartSandbox(_handle: Handle<ShewhartSandboxProps>) {
-    let handle = _handle
+  function ShewhartSandbox(handle: Handle<ShewhartSandboxProps>) {
     let nextInjectionId = 1
 
-    let config: ProcessConfig = {
+    let config = {
       mu: 10,
       sigma: 1,
       subgroupSize: 5,
       subgroupCount: 30,
       seed: 1,
-      injections: [],
+      injections: [] as Injection[],
     }
     let baselineCount = 25
 
@@ -104,10 +109,7 @@ export const ShewhartSandbox = clientEntry(
         let descriptions = firedRules.map(
           (n) => `Rule ${n}: ${WESTERN_ELECTRIC_RULES[n].description}`,
         )
-        return {
-          color: RULE_COLOR[primary],
-          tooltip: descriptions.join(' | '),
-        }
+        return { color: RULE_COLOR[primary], tooltip: descriptions.join(' | ') }
       })
 
       let pointTooltips = means.map((v, i) => {
@@ -129,26 +131,25 @@ export const ShewhartSandbox = clientEntry(
             ]
           : []
 
-      let totalViolations = violations.flat().length
+      // Tally rule violations for the WE panel.
+      let countsByRule: Record<1 | 2 | 3 | 4, number> = { 1: 0, 2: 0, 3: 0, 4: 0 }
+      for (let row of violations) {
+        for (let n of row) countsByRule[n]++
+      }
 
       return (
         <article mix={pageStyle}>
-          <header mix={headerStyle}>
-            <a href={routes.home.href()} mix={backLinkStyle}>
-              ← All tools
-            </a>
-            <h1 mix={titleStyle}>Shewhart Sandbox</h1>
-            <p mix={subtitleStyle}>
-              Generate a stable process. Inject special causes. Watch the chart over-react. The
-              hardest part of SPC isn't the math — it's not reacting to common-cause variation.
-            </p>
-          </header>
+          <SheetHeader
+            fig="Fig. 2.0 — Process control sandbox"
+            title="Shewhart Sandbox"
+            subtitle="Generate a stable process. Inject special causes. Watch the chart over-react. The hardest part of SPC isn't the math — it's not reacting to common-cause variation."
+          />
 
-          <section mix={mainGridStyle}>
-            <div mix={leftColumnStyle}>
-              <div mix={chartGridStyle}>
+          <div mix={twoColStyle}>
+            <div mix={mainColumnStyle}>
+              <Panel label="Fig. 2.1 — X̄ chart (subgroup means)" padding={20}>
                 <ControlChart
-                  title={`X̄ chart — subgroup means (n=${config.subgroupSize})`}
+                  title=""
                   points={means}
                   cl={limits.xbar}
                   ucl={limits.uclX}
@@ -160,8 +161,11 @@ export const ShewhartSandbox = clientEntry(
                   flags={flags}
                   pointTooltips={pointTooltips}
                 />
+              </Panel>
+
+              <Panel label="Fig. 2.2 — R chart (subgroup ranges)" padding={20}>
                 <ControlChart
-                  title="R chart — subgroup ranges"
+                  title=""
                   points={ranges}
                   cl={limits.rbar}
                   ucl={limits.uclR}
@@ -170,155 +174,131 @@ export const ShewhartSandbox = clientEntry(
                   xLabel="Subgroup"
                   baselineCutoff={effectiveBaseline}
                 />
-              </div>
+              </Panel>
 
-              <RuleLegend totalViolations={totalViolations} />
+              <Panel label="Western Electric audit · 4-rule panel" padding={20}>
+                <div mix={ruleGridStyle}>
+                  {([1, 2, 3, 4] as const).map((n) => (
+                    <RuleCell key={`rule-${n}`} number={n} hits={countsByRule[n]} />
+                  ))}
+                </div>
+              </Panel>
 
               {config.injections.length > 0 && (
-                <ScenarioSummary injections={config.injections} />
+                <Panel label="Active injections" padding={18}>
+                  <ul mix={summaryListStyle}>
+                    {config.injections.map((inj) => (
+                      <li key={`s-${inj.id}`} mix={summaryItemStyle}>
+                        {describeInjection(inj)}
+                      </li>
+                    ))}
+                  </ul>
+                </Panel>
               )}
             </div>
 
-            <aside mix={rightColumnStyle}>
-              <Panel title="Process">
-                <Field label={`μ (process mean) — ${config.mu.toFixed(2)}`}>
-                  <input
-                    type="range"
-                    min="0"
-                    max="100"
-                    step="0.5"
-                    value={String(config.mu)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.mu = Number(event.currentTarget.value)
-                        update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                <Field label={`σ (process sigma) — ${config.sigma.toFixed(2)}`}>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="10"
-                    step="0.1"
-                    value={String(config.sigma)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.sigma = Number(event.currentTarget.value)
-                        update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                <Field label={`n (subgroup size) — ${config.subgroupSize}`}>
-                  <input
-                    type="range"
-                    min="2"
-                    max="10"
-                    step="1"
-                    value={String(config.subgroupSize)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.subgroupSize = Number(event.currentTarget.value)
-                        update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                <Field label={`k (subgroup count) — ${config.subgroupCount}`}>
-                  <input
-                    type="range"
-                    min="10"
-                    max="100"
-                    step="1"
-                    value={String(config.subgroupCount)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        config.subgroupCount = Number(event.currentTarget.value)
-                        update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                <Field label={`Baseline (control limits from first ${baselineCount})`}>
-                  <input
-                    type="range"
-                    min="2"
-                    max="100"
-                    step="1"
-                    value={String(baselineCount)}
-                    mix={[
-                      sliderStyle,
-                      on('input', (event) => {
-                        baselineCount = Number(event.currentTarget.value)
-                        update()
-                      }),
-                    ]}
-                  />
-                </Field>
-                <Field label={`Seed: ${config.seed}`}>
-                  <div mix={inputRowStyle}>
-                    <input
-                      type="number"
-                      value={String(config.seed)}
-                      mix={[
-                        numberInputStyle,
-                        on('change', (event) => {
-                          let n = Number(event.currentTarget.value)
-                          if (Number.isFinite(n)) {
-                            config.seed = n
-                            update()
-                          }
-                        }),
-                      ]}
-                    />
-                    <button
-                      type="button"
-                      mix={[ghostButtonStyle, on('click', reshuffle)]}
-                    >
-                      Re-shuffle
-                    </button>
-                  </div>
-                </Field>
+            <aside mix={asideStyle}>
+              <Panel label="Process · Params" padding={16}>
+                <FieldSlider
+                  label="μ (process mean)"
+                  value={config.mu}
+                  min={0}
+                  max={20}
+                  step={0.1}
+                  format={(v) => v.toFixed(2)}
+                  onChange={(v) => {
+                    config.mu = v
+                    update()
+                  }}
+                />
+                <FieldSlider
+                  label="σ (process sigma)"
+                  value={config.sigma}
+                  min={0.1}
+                  max={3}
+                  step={0.05}
+                  format={(v) => v.toFixed(2)}
+                  onChange={(v) => {
+                    config.sigma = v
+                    update()
+                  }}
+                />
+                <FieldSlider
+                  label="n (subgroup size)"
+                  value={config.subgroupSize}
+                  min={2}
+                  max={10}
+                  step={1}
+                  onChange={(v) => {
+                    config.subgroupSize = Math.round(v)
+                    update()
+                  }}
+                />
+                <FieldSlider
+                  label="k (subgroups)"
+                  value={config.subgroupCount}
+                  min={10}
+                  max={80}
+                  step={1}
+                  onChange={(v) => {
+                    config.subgroupCount = Math.round(v)
+                    if (baselineCount > config.subgroupCount - 1) {
+                      baselineCount = Math.max(2, config.subgroupCount - 1)
+                    }
+                    update()
+                  }}
+                />
+                <FieldSlider
+                  label="Baseline window"
+                  value={baselineCount}
+                  min={2}
+                  max={Math.max(2, config.subgroupCount - 1)}
+                  step={1}
+                  onChange={(v) => {
+                    baselineCount = Math.round(v)
+                    update()
+                  }}
+                />
+                <FieldSlider
+                  label="Seed"
+                  value={config.seed}
+                  min={1}
+                  max={9999}
+                  step={1}
+                  format={(v) => String(Math.round(v)).padStart(5, '0')}
+                  onChange={(v) => {
+                    config.seed = Math.round(v)
+                    update()
+                  }}
+                />
+                <DraftingButton primary full onClick={reshuffle}>
+                  ↻ Re-shuffle seed
+                </DraftingButton>
               </Panel>
 
-              <Panel title="Inject special cause">
-                <div mix={injectionButtonsStyle}>
-                  <button
-                    type="button"
-                    mix={[secondaryButtonStyle, on('click', () => addInjection('meanShift'))]}
-                  >
+              <Panel label="Inject · Special cause" padding={16}>
+                <div mix={injectButtonsStyle}>
+                  <DraftingButton onClick={() => addInjection('meanShift')}>
                     + Mean shift
-                  </button>
-                  <button
-                    type="button"
-                    mix={[
-                      secondaryButtonStyle,
-                      on('click', () => addInjection('varianceIncrease')),
-                    ]}
-                  >
+                  </DraftingButton>
+                  <DraftingButton onClick={() => addInjection('varianceIncrease')}>
                     + Variance ×
-                  </button>
-                  <button
-                    type="button"
-                    mix={[
-                      secondaryButtonStyle,
-                      on('click', () => addInjection('singleOutlier')),
-                    ]}
-                  >
+                  </DraftingButton>
+                  <DraftingButton onClick={() => addInjection('singleOutlier')}>
                     + Outlier
-                  </button>
+                  </DraftingButton>
+                  <DraftingButton
+                    onClick={clearInjections}
+                    disabled={config.injections.length === 0}
+                  >
+                    Clear all
+                  </DraftingButton>
                 </div>
                 {config.injections.length > 0 && (
-                  <ul mix={injectionListStyle}>
+                  <ul mix={editorListStyle}>
                     {config.injections.map((injection) => (
                       <InjectionEditor
-                        key={injection.id}
+                        key={`e-${injection.id}`}
                         injection={injection}
                         maxSubgroup={config.subgroupCount}
                         onUpdate={(patch) => updateInjection(injection.id, patch)}
@@ -327,22 +307,52 @@ export const ShewhartSandbox = clientEntry(
                     ))}
                   </ul>
                 )}
-                {config.injections.length > 0 && (
-                  <button
-                    type="button"
-                    mix={[ghostButtonStyle, on('click', clearInjections)]}
-                  >
-                    Clear all
-                  </button>
-                )}
+              </Panel>
+
+              <Panel label="Computed limits" padding={16}>
+                <Readout k="X̄̄" v={limits.xbar.toFixed(3)} accent />
+                <Readout k="R̄" v={limits.rbar.toFixed(3)} />
+                <Readout k="σ̂ (xbar)" v={sigmaXbar.toFixed(3)} />
+                <Readout k="UCL X̄" v={limits.uclX.toFixed(3)} />
+                <Readout k="LCL X̄" v={limits.lclX.toFixed(3)} />
+                <Readout
+                  k="Violations"
+                  v={`${countsByRule[1] + countsByRule[2] + countsByRule[3] + countsByRule[4]}`}
+                  accent={
+                    countsByRule[1] + countsByRule[2] + countsByRule[3] + countsByRule[4] > 0
+                  }
+                />
+              </Panel>
+
+              <Panel label="Drafting note" padding={16}>
+                <div mix={noteStyle}>
+                  Inject a mean shift, then watch how slowly Rule 4 catches it. Detection lags
+                  reality. The temptation is to "do something" before the chart says so.
+                </div>
               </Panel>
             </aside>
-          </section>
+          </div>
         </article>
       )
     }
   },
 )
+
+function RuleCell(handle: Handle<{ number: 1 | 2 | 3 | 4; hits: number }>) {
+  return () => {
+    let { number, hits } = handle.props
+    let active = hits > 0
+    return (
+      <div mix={active ? ruleCellActiveStyle : ruleCellStyle}>
+        <div mix={ruleNumStyle}>RULE {number}</div>
+        <div mix={ruleDescStyle}>{WESTERN_ELECTRIC_RULES[number].description}</div>
+        <div mix={active ? ruleStatActiveStyle : ruleStatStyle}>
+          {active ? `▲ ${hits} VIOLATION${hits === 1 ? '' : 'S'}` : '○ NO VIOLATIONS'}
+        </div>
+      </div>
+    )
+  }
+}
 
 function InjectionEditor(
   handle: Handle<{
@@ -355,95 +365,69 @@ function InjectionEditor(
   return () => {
     let { injection, maxSubgroup, onUpdate, onRemove } = handle.props
     return (
-      <li mix={injectionCardStyle}>
-        <div mix={injectionHeaderStyle}>
-          <span mix={injectionKindStyle}>{kindLabel(injection.kind)}</span>
-          <button type="button" mix={[iconButtonStyle, on('click', onRemove)]}>
+      <li mix={editorCardStyle}>
+        <div mix={editorHeaderStyle}>
+          <span mix={editorKindStyle}>{kindLabel(injection.kind)}</span>
+          <button type="button" mix={[iconButtonStyle, on('click', onRemove)]} aria-label="Remove">
             ×
           </button>
         </div>
-        <Field
+        <FieldSlider
           label={
             injection.kind === 'singleOutlier'
-              ? `At subgroup ${injection.atSubgroup}`
-              : `From subgroup ${injection.startSubgroup}`
+              ? 'At subgroup'
+              : 'From subgroup'
           }
-        >
-          <input
-            type="range"
-            min="1"
-            max={String(maxSubgroup)}
-            step="1"
-            value={String(
-              injection.kind === 'singleOutlier'
-                ? injection.atSubgroup
-                : injection.startSubgroup,
-            )}
-            mix={[
-              sliderStyle,
-              on('input', (event) => {
-                let v = Number(event.currentTarget.value)
-                if (injection.kind === 'singleOutlier') {
-                  onUpdate({ atSubgroup: v } as Partial<Injection>)
-                } else {
-                  onUpdate({ startSubgroup: v } as Partial<Injection>)
-                }
-              }),
-            ]}
-          />
-        </Field>
+          value={
+            injection.kind === 'singleOutlier'
+              ? injection.atSubgroup
+              : injection.startSubgroup
+          }
+          min={1}
+          max={maxSubgroup}
+          step={1}
+          onChange={(v) => {
+            let n = Math.round(v)
+            if (injection.kind === 'singleOutlier') {
+              onUpdate({ atSubgroup: n } as Partial<Injection>)
+            } else {
+              onUpdate({ startSubgroup: n } as Partial<Injection>)
+            }
+          }}
+        />
         {injection.kind === 'meanShift' && (
-          <Field label={`Δμ = ${injection.delta.toFixed(2)}`}>
-            <input
-              type="range"
-              min="-10"
-              max="10"
-              step="0.1"
-              value={String(injection.delta)}
-              mix={[
-                sliderStyle,
-                on('input', (event) => {
-                  onUpdate({ delta: Number(event.currentTarget.value) } as Partial<Injection>)
-                }),
-              ]}
-            />
-          </Field>
+          <FieldSlider
+            label="Δμ"
+            value={injection.delta}
+            min={-10}
+            max={10}
+            step={0.1}
+            format={(v) => v.toFixed(2)}
+            onChange={(v) => onUpdate({ delta: v } as Partial<Injection>)}
+          />
         )}
         {injection.kind === 'varianceIncrease' && (
-          <Field label={`σ × ${injection.multiplier.toFixed(2)}`}>
-            <input
-              type="range"
-              min="0.5"
-              max="5"
-              step="0.1"
-              value={String(injection.multiplier)}
-              mix={[
-                sliderStyle,
-                on('input', (event) => {
-                  onUpdate({
-                    multiplier: Number(event.currentTarget.value),
-                  } as Partial<Injection>)
-                }),
-              ]}
-            />
-          </Field>
+          <FieldSlider
+            label="σ ×"
+            value={injection.multiplier}
+            min={0.5}
+            max={5}
+            step={0.1}
+            format={(v) => v.toFixed(2)}
+            onChange={(v) => onUpdate({ multiplier: v } as Partial<Injection>)}
+          />
         )}
         {injection.kind === 'singleOutlier' && (
-          <Field label={`Outlier magnitude: ${injection.sigmas.toFixed(1)}σ`}>
-            <input
-              type="range"
-              min="-10"
-              max="10"
-              step="0.5"
-              value={String(injection.sigmas)}
-              mix={[
-                sliderStyle,
-                on('input', (event) => {
-                  onUpdate({ sigmas: Number(event.currentTarget.value) } as Partial<Injection>)
-                }),
-              ]}
-            />
-          </Field>
+          <FieldSlider
+            label="Magnitude"
+            unit="σ"
+            value={injection.sigmas}
+            min={-10}
+            max={10}
+            step={0.5}
+            format={(v) => v.toFixed(1)}
+            onChange={(v) => onUpdate({ sigmas: v } as Partial<Injection>)}
+          />
         )}
       </li>
     )
@@ -461,342 +445,88 @@ function kindLabel(kind: InjectionKind): string {
   }
 }
 
-function RuleLegend(handle: Handle<{ totalViolations: number }>) {
-  return () => (
-    <section mix={legendStyle}>
-      <h2 mix={legendTitleStyle}>
-        Western Electric rules — {handle.props.totalViolations} violation
-        {handle.props.totalViolations === 1 ? '' : 's'}
-      </h2>
-      <ul mix={legendListStyle}>
-        {([1, 2, 3, 4] as const).map((n) => (
-          <li key={`r-${n}`} mix={legendItemStyle}>
-            <span mix={legendDotStyle(RULE_COLOR[n])} />
-            <span mix={legendTextStyle}>
-              <strong>Rule {n}</strong> — {WESTERN_ELECTRIC_RULES[n].description}
-            </span>
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function ScenarioSummary(handle: Handle<{ injections: Injection[] }>) {
-  return () => (
-    <section mix={summaryStyle}>
-      <h2 mix={summaryTitleStyle}>Active injections</h2>
-      <ul mix={summaryListStyle}>
-        {handle.props.injections.map((inj) => (
-          <li key={inj.id} mix={summaryItemStyle}>
-            {describeInjection(inj)}
-          </li>
-        ))}
-      </ul>
-    </section>
-  )
-}
-
-function Panel(handle: Handle<{ title: string; children?: unknown }>) {
-  return () => (
-    <section mix={panelStyle}>
-      <h2 mix={panelTitleStyle}>{handle.props.title}</h2>
-      <div mix={panelBodyStyle}>{handle.props.children as never}</div>
-    </section>
-  )
-}
-
-function Field(handle: Handle<{ label: string; children?: unknown }>) {
-  return () => (
-    <label mix={fieldStyle}>
-      <span mix={fieldLabelStyle}>{handle.props.label}</span>
-      {handle.props.children as never}
-    </label>
-  )
-}
+// -------------------------------------------------------------------------
+// Styles
+// -------------------------------------------------------------------------
 
 const pageStyle = css({
-  '--surface-0': '#dee2e6',
-  '--surface-3': '#f0f4f7',
-  '--surface-4': '#f7fbff',
-  '--text-primary': '#313539',
-  '--text-tertiary': '#6f757b',
-  '--brand-blue': '#2dacf9',
-  '@media (prefers-color-scheme: dark)': {
-    '--surface-0': '#1e2226',
-    '--surface-3': '#3a4148',
-    '--surface-4': '#4a525a',
-    '--text-primary': '#e8ecef',
-    '--text-tertiary': '#a8aeb3',
-  },
-  '& *, & *::before, & *::after': { boxSizing: 'border-box' },
-  fontFamily:
-    "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
-  color: 'var(--text-primary)',
-  background: 'var(--surface-0)',
-  minHeight: '100vh',
-  margin: 0,
-  padding: '32px clamp(16px, 4vw, 48px) 64px',
+  fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
+  color: T.ink,
   display: 'flex',
   flexDirection: 'column',
-  gap: '24px',
+  gap: '28px',
 })
 
-const headerStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
-  maxWidth: '720px',
-})
-
-const backLinkStyle = css({
-  alignSelf: 'flex-start',
-  fontSize: '12px',
-  color: 'var(--text-tertiary)',
-  textDecoration: 'none',
-  transition: 'color 120ms ease',
-  '&:hover, &:focus-visible': {
-    color: 'var(--brand-blue)',
-    outline: 'none',
-  },
-})
-
-const titleStyle = css({
-  margin: 0,
-  fontSize: '24px',
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-})
-
-const subtitleStyle = css({
-  margin: 0,
-  fontSize: '14px',
-  lineHeight: 1.6,
-  color: 'var(--text-tertiary)',
-})
-
-const mainGridStyle = css({
+const twoColStyle = css({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, 1fr) 320px',
   gap: '24px',
-  '@media (max-width: 960px)': { gridTemplateColumns: 'minmax(0, 1fr)' },
+  alignItems: 'flex-start',
+  '@media (max-width: 1100px)': { gridTemplateColumns: 'minmax(0, 1fr)' },
 })
 
-const leftColumnStyle = css({
+const mainColumnStyle = css({
   display: 'flex',
   flexDirection: 'column',
-  gap: '20px',
+  gap: '24px',
   minWidth: 0,
 })
 
-const rightColumnStyle = css({
+const asideStyle = css({
   display: 'flex',
   flexDirection: 'column',
   gap: '16px',
+  position: 'sticky',
+  top: '96px',
+  '@media (max-width: 1100px)': { position: 'static', top: 'auto' },
 })
 
-const chartGridStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const baseButtonStyle = {
-  appearance: 'none',
-  font: 'inherit',
-  fontSize: '13px',
-  cursor: 'pointer',
-  padding: '8px 12px',
-  borderRadius: '8px',
-  border: 0,
-  transition: 'background-color 120ms ease, color 120ms ease',
-  '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
-} as const
-
-const secondaryButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'var(--surface-3)',
-  color: 'var(--text-primary)',
-  '&:hover:not(:disabled)': { background: 'var(--surface-4)' },
-})
-
-const ghostButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'transparent',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--surface-3)',
-  '&:hover:not(:disabled)': { background: 'var(--surface-4)' },
-})
-
-const iconButtonStyle = css({
-  ...baseButtonStyle,
-  width: '24px',
-  height: '24px',
-  padding: 0,
-  background: 'transparent',
-  color: 'var(--text-tertiary)',
-  border: '1px solid var(--surface-0)',
-  '&:hover': { color: '#ff5148', borderColor: '#ff5148' },
-})
-
-const panelStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '16px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const panelTitleStyle = css({
-  margin: 0,
-  fontSize: '12px',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
-})
-
-const panelBodyStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const fieldStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-})
-
-const fieldLabelStyle = css({
-  fontSize: '12px',
-  color: 'var(--text-primary)',
-})
-
-const sliderStyle = css({ width: '100%' })
-
-const numberInputStyle = css({
-  appearance: 'none',
-  font: 'inherit',
-  fontSize: '13px',
-  padding: '8px 10px',
-  borderRadius: '6px',
-  border: '1px solid var(--surface-0)',
-  background: 'var(--surface-4)',
-  color: 'var(--text-primary)',
-  flex: '1 1 0',
-  minWidth: 0,
-})
-
-const inputRowStyle = css({
-  display: 'flex',
-  gap: '8px',
-  alignItems: 'center',
-})
-
-const injectionButtonsStyle = css({
+const ruleGridStyle = css({
   display: 'grid',
-  gridTemplateColumns: '1fr 1fr 1fr',
-  gap: '8px',
+  gridTemplateColumns: 'repeat(4, 1fr)',
+  gap: '10px',
+  '@media (max-width: 720px)': { gridTemplateColumns: 'repeat(2, 1fr)' },
 })
 
-const injectionListStyle = css({
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
+const ruleCellStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '12px',
+  background: 'transparent',
 })
 
-const injectionCardStyle = css({
-  background: 'var(--surface-4)',
-  borderRadius: '8px',
-  padding: '10px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
+const ruleCellActiveStyle = css({
+  border: `1px solid ${T.accent}`,
+  padding: '12px',
+  background: T.accentSoft,
 })
 
-const injectionHeaderStyle = css({
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
+const ruleNumStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.16em',
+  fontWeight: 700,
 })
 
-const injectionKindStyle = css({
+const ruleDescStyle = css({
+  marginTop: '6px',
   fontSize: '11px',
+  lineHeight: 1.4,
+  opacity: 0.85,
+})
+
+const ruleStatStyle = css({
+  marginTop: '10px',
+  fontSize: '10px',
+  letterSpacing: '0.14em',
   fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--brand-blue)',
+  color: T.ink,
 })
 
-const legendStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '14px 16px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
-})
-
-const legendTitleStyle = css({
-  margin: 0,
-  fontSize: '12px',
+const ruleStatActiveStyle = css({
+  marginTop: '10px',
+  fontSize: '10px',
+  letterSpacing: '0.14em',
   fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
-})
-
-const legendListStyle = css({
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
-  gap: '6px 16px',
-})
-
-const legendItemStyle = css({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-})
-
-function legendDotStyle(color: string) {
-  return css({
-    width: '10px',
-    height: '10px',
-    borderRadius: '50%',
-    background: color,
-    flex: '0 0 auto',
-  })
-}
-
-const legendTextStyle = css({
-  fontSize: '12px',
-  color: 'var(--text-primary)',
-})
-
-const summaryStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '14px 16px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-})
-
-const summaryTitleStyle = css({
-  margin: 0,
-  fontSize: '12px',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
+  color: T.accent,
 })
 
 const summaryListStyle = css({
@@ -805,10 +535,66 @@ const summaryListStyle = css({
   listStyle: 'none',
   display: 'flex',
   flexDirection: 'column',
-  gap: '4px',
+  gap: '6px',
 })
 
 const summaryItemStyle = css({
-  fontSize: '12px',
-  color: 'var(--text-primary)',
+  fontSize: '11px',
+  paddingTop: '6px',
+  borderTop: `1px dashed ${T.ink}`,
+  '&:first-child': { borderTop: 'none', paddingTop: 0 },
+})
+
+const injectButtonsStyle = css({
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: '6px',
+})
+
+const editorListStyle = css({
+  margin: '12px 0 0',
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+})
+
+const editorCardStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '10px',
+})
+
+const editorHeaderStyle = css({
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginBottom: '8px',
+})
+
+const editorKindStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+  color: T.accent,
+})
+
+const iconButtonStyle = css({
+  appearance: 'none',
+  background: 'transparent',
+  border: `1px solid ${T.ink}`,
+  width: '24px',
+  height: '24px',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  fontSize: '14px',
+  lineHeight: 1,
+  color: T.ink,
+  '&:hover': { background: T.accent, color: T.paper, borderColor: T.accent },
+})
+
+const noteStyle = css({
+  fontSize: '11px',
+  lineHeight: 1.55,
 })

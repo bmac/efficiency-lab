@@ -1,10 +1,10 @@
-import { Document } from '../../ui/document.tsx'
+import { Layout } from '../../ui/layout.tsx'
 import { RedBeadSimulator } from './simulator.tsx'
 
 export function RedBeadsPage() {
   return () => (
-    <Document title="Red Bead Experiment — Efficiency Lab">
+    <Layout title="Red Bead Experiment — Efficiency Lab" slug="red-beads">
       <RedBeadSimulator initialSeed={1} />
-    </Document>
+    </Layout>
   )
 }

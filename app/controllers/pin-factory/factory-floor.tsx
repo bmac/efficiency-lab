@@ -1,6 +1,13 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
-import { routes } from '../../routes.ts'
+import {
+  DraftingButton,
+  FieldSlider,
+  Panel,
+  Readout,
+  SheetHeader,
+  T,
+} from '../../ui/shell.tsx'
 import {
   SCENARIO_PRESETS,
   Simulator,
@@ -15,16 +22,16 @@ interface FactoryFloorProps extends SerializableProps {}
 const SPEED_OPTIONS = [1, 4, 16] as const
 type Speed = (typeof SPEED_OPTIONS)[number]
 
-const STATE_COLOR: Record<StationSnapshot['state'], string> = {
-  working: '#80e464',
-  blocked: '#ff5148',
-  starved: '#ffdf5f',
+const STATE_LABEL: Record<StationSnapshot['state'], string> = {
+  working: '● WORKING',
+  blocked: '● BLOCKED',
+  starved: '● STARVED',
 }
 
-const STATE_LABEL: Record<StationSnapshot['state'], string> = {
-  working: 'Working',
-  blocked: 'Blocked',
-  starved: 'Starved',
+const STATE_COLOR: Record<StationSnapshot['state'], string> = {
+  working: T.ink,
+  blocked: T.warn,
+  starved: T.warn,
 }
 
 export const FactoryFloor = clientEntry(
@@ -38,7 +45,6 @@ export const FactoryFloor = clientEntry(
 
     if (typeof requestAnimationFrame !== 'undefined') {
       let frameId: number | null = null
-
       function tick(timestamp: number) {
         if (handle.signal.aborted) return
         if (paused) {
@@ -53,7 +59,6 @@ export const FactoryFloor = clientEntry(
         }
         frameId = requestAnimationFrame(tick)
       }
-
       frameId = requestAnimationFrame(tick)
       handle.signal.addEventListener('abort', () => {
         if (frameId != null) cancelAnimationFrame(frameId)
@@ -132,93 +137,68 @@ export const FactoryFloor = clientEntry(
 
       return (
         <article mix={pageStyle}>
-          <header mix={headerStyle}>
-            <a href={routes.home.href()} mix={backLinkStyle}>
-              ← All tools
-            </a>
-            <h1 mix={titleStyle}>Pin Factory</h1>
-            <p mix={subtitleStyle}>
-              Five-station serial line. Slide variance up. Switch from push to pull. Watch
-              throughput, cycle time, and WIP respond. Lower cycle-time variance is the prize.
-            </p>
-          </header>
+          <SheetHeader
+            fig="Fig. 3.0 — Serial line"
+            title="Pin Factory"
+            subtitle="Five stations in series. Slide variance up. Switch from push to pull. Watch where buffers swell, where stations starve, and how a single slow step paces the line."
+          />
 
-          <section mix={controlBarStyle}>
-            <button
-              type="button"
-              mix={[primaryButtonStyle, on('click', togglePause)]}
-            >
-              {paused ? 'Play' : 'Pause'}
-            </button>
-            <button type="button" mix={[secondaryButtonStyle, on('click', stepOnce)]}>
-              Step 1s
-            </button>
-            <div mix={speedGroupStyle}>
-              {SPEED_OPTIONS.map((s) => (
-                <button
-                  key={`speed-${s}`}
-                  type="button"
-                  mix={[
-                    speedButtonStyle(s === speed),
-                    on('click', () => setSpeed(s)),
-                  ]}
-                >
-                  {s}×
-                </button>
-              ))}
-            </div>
-            <span mix={timeStyle}>t = {snap.time.toFixed(1)}s</span>
-            <button type="button" mix={[ghostButtonStyle, on('click', reset)]}>
-              Reset
-            </button>
-          </section>
-
-          <section mix={mainGridStyle}>
-            <div mix={leftColumnStyle}>
-              <FactoryLine stations={snap.stations} />
+          <div mix={twoColStyle}>
+            <div mix={mainColumnStyle}>
+              <Panel label="Fig. 3.1 — Line diagram (live)" padding={20}>
+                <FactoryLine stations={snap.stations} />
+              </Panel>
 
               <div mix={metricsRowStyle}>
-                <Stat label="Throughput" value={`${snap.throughput.toFixed(3)} u/s`} />
-                <Stat label="Cycle time (avg)" value={`${snap.avgCycleTime.toFixed(1)} s`} />
-                <Stat label="WIP" value={String(snap.wip)} />
-                <Stat label="Completed" value={String(snap.completedCount)} />
-              </div>
-
-              <div mix={sparklinesStyle}>
-                <Sparkline
-                  label="Throughput"
-                  unit="units/sec"
-                  value={snap.throughput}
-                  formatValue={(v) => v.toFixed(3)}
-                  series={throughputSeries}
-                  windowSeconds={120}
-                  color="var(--brand-blue)"
-                />
-                <Sparkline
+                <Metric label="Throughput" value={`${snap.throughput.toFixed(3)}`} unit="u/s" />
+                <Metric
                   label="Cycle time"
-                  unit="seconds"
-                  value={snap.avgCycleTime}
-                  formatValue={(v) => v.toFixed(1)}
-                  series={cycleSeries}
-                  windowSeconds={120}
-                  color="#ff65db"
+                  value={`${snap.avgCycleTime.toFixed(1)}`}
+                  unit="sec"
                 />
-                <Sparkline
-                  label="WIP"
-                  unit="units in system"
-                  value={snap.wip}
-                  formatValue={(v) => Math.round(v).toString()}
-                  series={wipSeries}
-                  windowSeconds={120}
-                  color="#ffdf5f"
-                />
+                <Metric label="WIP" value={String(snap.wip)} unit="units" />
+                <Metric label="Completed" value={String(snap.completedCount)} unit="units" />
               </div>
 
-              <StationStatsTable stations={snap.stations} />
+              <Panel label="Fig. 3.2 — Timeseries (last 120 s)" padding={16}>
+                <div mix={sparkRowStyle}>
+                  <Sparkline
+                    label="Throughput"
+                    unit="u/s"
+                    value={snap.throughput}
+                    formatValue={(v) => v.toFixed(3)}
+                    series={throughputSeries}
+                    windowSeconds={120}
+                    color={T.accent}
+                  />
+                  <Sparkline
+                    label="Cycle time"
+                    unit="sec"
+                    value={snap.avgCycleTime}
+                    formatValue={(v) => v.toFixed(1)}
+                    series={cycleSeries}
+                    windowSeconds={120}
+                    color={T.ink}
+                  />
+                  <Sparkline
+                    label="WIP"
+                    unit="units"
+                    value={snap.wip}
+                    formatValue={(v) => Math.round(v).toString()}
+                    series={wipSeries}
+                    windowSeconds={120}
+                    color={T.warn}
+                  />
+                </div>
+              </Panel>
+
+              <Panel label="Station audit" padding={18}>
+                <StationStatsTable stations={snap.stations} />
+              </Panel>
             </div>
 
-            <aside mix={rightColumnStyle}>
-              <Panel title="Scenario">
+            <aside mix={asideStyle}>
+              <Panel label="Scenario" padding={16}>
                 <div mix={presetGridStyle}>
                   {SCENARIO_PRESETS.map((p) => (
                     <PresetButton
@@ -231,81 +211,115 @@ export const FactoryFloor = clientEntry(
                 </div>
               </Panel>
 
-              <Panel title="Mode">
-                <div mix={modeRowStyle}>
-                  <button
-                    type="button"
-                    mix={[
-                      modeButtonStyle(isPush),
-                      on('click', () => setMode('push')),
-                    ]}
-                  >
+              <Panel label="Sim controls" padding={16}>
+                <div mix={twoButtonRowStyle}>
+                  <DraftingButton primary onClick={togglePause}>
+                    {paused ? '▶ Run' : '‖ Pause'}
+                  </DraftingButton>
+                  <DraftingButton onClick={stepOnce}>Step 1s</DraftingButton>
+                </div>
+                <div mix={speedGroupStyle}>
+                  {SPEED_OPTIONS.map((s) => (
+                    <button
+                      key={`speed-${s}`}
+                      type="button"
+                      mix={[
+                        s === speed ? speedButtonActiveStyle : speedButtonStyle,
+                        on('click', () => setSpeed(s)),
+                      ]}
+                    >
+                      {s}×
+                    </button>
+                  ))}
+                </div>
+                <DraftingButton full onClick={reset}>
+                  Reset
+                </DraftingButton>
+              </Panel>
+
+              <Panel label="Mode" padding={16}>
+                <div mix={twoButtonRowStyle}>
+                  <DraftingButton primary={isPush} onClick={() => setMode('push')}>
                     Push
-                  </button>
-                  <button
-                    type="button"
-                    mix={[
-                      modeButtonStyle(!isPush),
-                      on('click', () => setMode('pull')),
-                    ]}
-                  >
+                  </DraftingButton>
+                  <DraftingButton primary={!isPush} onClick={() => setMode('pull')}>
                     Pull
-                  </button>
+                  </DraftingButton>
                 </div>
                 {isPush ? (
-                  <Field
-                    label={`Release rate: ${sim.config.releaseRate.toFixed(3)} u/s`}
-                  >
-                    <input
-                      type="range"
-                      min="0.01"
-                      max="0.5"
-                      step="0.005"
-                      value={String(sim.config.releaseRate)}
-                      mix={[
-                        sliderStyle,
-                        on('input', (event) => {
-                          setReleaseRate(Number(event.currentTarget.value))
-                        }),
-                      ]}
-                    />
-                  </Field>
+                  <FieldSlider
+                    label="Release rate"
+                    unit="u/s"
+                    value={sim.config.releaseRate}
+                    min={0.01}
+                    max={0.5}
+                    step={0.005}
+                    format={(v) => v.toFixed(3)}
+                    onChange={setReleaseRate}
+                  />
                 ) : (
-                  <Field label={`Kanban cap (K): ${sim.config.kanbanCap}`}>
-                    <input
-                      type="range"
-                      min="1"
-                      max="10"
-                      step="1"
-                      value={String(sim.config.kanbanCap)}
-                      mix={[
-                        sliderStyle,
-                        on('input', (event) => {
-                          setKanbanCap(Number(event.currentTarget.value))
-                        }),
-                      ]}
-                    />
-                  </Field>
+                  <FieldSlider
+                    label="Kanban cap (K)"
+                    value={sim.config.kanbanCap}
+                    min={1}
+                    max={10}
+                    step={1}
+                    onChange={(v) => setKanbanCap(Math.round(v))}
+                  />
                 )}
               </Panel>
 
-              <Panel title="Stations">
+              <Panel label="Live readout" padding={16}>
+                <Readout k="t" v={`${snap.time.toFixed(1)} s`} accent />
+                <Readout k="Mode" v={sim.config.mode.toUpperCase()} />
+                <Readout
+                  k="Release"
+                  v={isPush ? `${sim.config.releaseRate.toFixed(3)} u/s` : `K=${sim.config.kanbanCap}`}
+                />
+                <Readout k="Speed" v={`${speed}×`} />
+                <Readout k="State" v={paused ? 'Paused' : 'Running'} />
+              </Panel>
+
+              <Panel label="Stations · Service times" padding={16}>
                 <div mix={stationConfigListStyle}>
                   {sim.config.stations.map((s, i) => (
-                    <StationConfigEditor
-                      key={`s-${i}`}
-                      index={i}
-                      name={s.name}
-                      mean={s.mean}
-                      sigma={s.sigma}
-                      onMeanChange={(v) => setStationMean(i, v)}
-                      onSigmaChange={(v) => setStationSigma(i, v)}
-                    />
+                    <div key={`s-${i}`} mix={stationConfigCardStyle}>
+                      <div mix={stationConfigHeaderStyle}>
+                        STN.{String(i + 1).padStart(2, '0')} · {s.name}
+                      </div>
+                      <FieldSlider
+                        label="μ.svc"
+                        unit="s"
+                        value={s.mean}
+                        min={1}
+                        max={30}
+                        step={0.5}
+                        format={(v) => v.toFixed(1)}
+                        onChange={(v) => setStationMean(i, v)}
+                      />
+                      <FieldSlider
+                        label="σ.svc"
+                        value={s.sigma}
+                        min={0}
+                        max={8}
+                        step={0.1}
+                        format={(v) => v.toFixed(1)}
+                        onChange={(v) => setStationSigma(i, v)}
+                      />
+                    </div>
                   ))}
                 </div>
               </Panel>
+
+              <Panel label="Drafting note" padding={16}>
+                <div mix={noteStyle}>
+                  Variance is the enemy. A balanced line with high σ behaves worse than an
+                  unbalanced line with low σ. Pull mode trades throughput for predictability —
+                  the K=1 case is single-piece flow.
+                </div>
+              </Panel>
             </aside>
-          </section>
+          </div>
         </article>
       )
     }
@@ -317,55 +331,50 @@ function FactoryLine(handle: Handle<{ stations: StationSnapshot[] }>) {
     let { stations } = handle.props
     return (
       <div mix={lineWrapStyle}>
-        <ol mix={lineStyle}>
-          {stations.map((s, i) => (
-            <li key={`fs-${i}`} mix={lineItemStyle}>
-              <StationCard station={s} index={i} />
-              {i < stations.length - 1 && (
-                <BufferIndicator depth={stations[i + 1].bufferDepth} />
-              )}
-            </li>
-          ))}
-        </ol>
+        {stations.map((s, i) => (
+          <StationCard
+            key={`fs-${i}`}
+            station={s}
+            index={i}
+            isLast={i === stations.length - 1}
+          />
+        ))}
+        <div mix={outArrowStyle}>→ out</div>
       </div>
     )
   }
 }
 
-function StationCard(handle: Handle<{ station: StationSnapshot; index: number }>) {
+function StationCard(
+  handle: Handle<{ station: StationSnapshot; index: number; isLast: boolean }>,
+) {
   return () => {
     let { station, index } = handle.props
-    let color = STATE_COLOR[station.state]
+    let bufN = station.bufferDepth
+    let bufWarn = bufN > 5
     return (
       <div mix={stationCardStyle}>
-        <div mix={stationHeaderStyle}>
-          <span mix={stationIndexStyle}>#{index + 1}</span>
-          <span mix={stationNameStyle}>{station.name}</span>
+        <div mix={stationTopStyle}>
+          <span>STN.{String(index + 1).padStart(2, '0')}</span>
+          {index > 0 && (
+            <span mix={bufWarn ? bufferChipWarnStyle : bufferChipStyle}>← {bufN}</span>
+          )}
         </div>
-        <div mix={stationBodyStyle}>
-          <span mix={stateDotStyle(color)} />
-          <span mix={stateLabelStyle}>{STATE_LABEL[station.state]}</span>
+        <div mix={stationNameStyle}>{station.name}</div>
+        <div
+          mix={stationStateStyle}
+          style={{ color: STATE_COLOR[station.state] }}
+        >
+          {STATE_LABEL[station.state]}
         </div>
-        <div mix={stationFooterStyle}>
-          <span>util {(station.utilization * 100).toFixed(0)}%</span>
+        <div mix={stationUtilLabelStyle}>UTIL</div>
+        <div mix={stationUtilValueStyle}>{(station.utilization * 100).toFixed(0)}%</div>
+        <div mix={utilTrackStyle}>
+          <div
+            mix={utilFillStyle}
+            style={{ width: `${Math.min(100, station.utilization * 100)}%` }}
+          />
         </div>
-      </div>
-    )
-  }
-}
-
-function BufferIndicator(handle: Handle<{ depth: number }>) {
-  return () => {
-    let { depth } = handle.props
-    let visible = Math.min(depth, 8)
-    return (
-      <div mix={bufferStyle}>
-        <div mix={bufferStackStyle}>
-          {Array.from({ length: visible }).map((_, i) => (
-            <span key={`b-${i}`} mix={bufferDotStyle} />
-          ))}
-        </div>
-        <span mix={bufferCountStyle}>{depth > 0 ? `→ ${depth}` : '→'}</span>
       </div>
     )
   }
@@ -373,84 +382,37 @@ function BufferIndicator(handle: Handle<{ depth: number }>) {
 
 function StationStatsTable(handle: Handle<{ stations: StationSnapshot[] }>) {
   return () => (
-    <table mix={statTableStyle}>
-      <thead>
-        <tr>
-          <th mix={thStyle}>Station</th>
-          <th mix={thStyle}>State</th>
-          <th mix={thStyle}>Buffer</th>
-          <th mix={thStyle}>Utilization</th>
-          <th mix={thStyle}>Starved %</th>
-          <th mix={thStyle}>Blocked %</th>
-        </tr>
-      </thead>
-      <tbody>
-        {handle.props.stations.map((s, i) => (
-          <tr key={`st-${i}`}>
-            <td mix={tdStyle}>
-              {i + 1}. {s.name}
-            </td>
-            <td mix={tdStyle}>
-              <span mix={stateDotStyle(STATE_COLOR[s.state])} /> {STATE_LABEL[s.state]}
-            </td>
-            <td mix={tdStyle}>{s.bufferDepth}</td>
-            <td mix={tdStyle}>{(s.utilization * 100).toFixed(0)}%</td>
-            <td mix={tdStyle}>{(s.starvedFraction * 100).toFixed(0)}%</td>
-            <td mix={tdStyle}>{(s.blockedFraction * 100).toFixed(0)}%</td>
+    <div mix={tableScrollStyle}>
+      <table mix={tableStyle}>
+        <thead>
+          <tr>
+            <th mix={thStyle}>Stn</th>
+            <th mix={thStyle}>Name</th>
+            <th mix={thStyle}>State</th>
+            <th mix={thStyle}>Buffer in</th>
+            <th mix={thStyle}>Util</th>
+            <th mix={thStyle}>Starved %</th>
+            <th mix={thStyle}>Blocked %</th>
           </tr>
-        ))}
-      </tbody>
-    </table>
+        </thead>
+        <tbody>
+          {handle.props.stations.map((s, i) => (
+            <tr key={`st-${i}`}>
+              <td mix={tdStyle}>{String(i + 1).padStart(2, '0')}</td>
+              <td mix={tdStyle}>{s.name}</td>
+              <td mix={tdStyle} style={{ color: STATE_COLOR[s.state], fontWeight: 700 }}>
+                {STATE_LABEL[s.state]}
+              </td>
+              <td mix={tdStyle}>{s.bufferDepth}</td>
+              <td mix={tdStyle}>{(s.utilization * 100).toFixed(0)}%</td>
+              <td mix={tdStyle}>{(s.starvedFraction * 100).toFixed(0)}%</td>
+              <td mix={tdStyle}>{(s.blockedFraction * 100).toFixed(0)}%</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
   )
-}
-
-function StationConfigEditor(
-  handle: Handle<{
-    index: number
-    name: string
-    mean: number
-    sigma: number
-    onMeanChange: (v: number) => void
-    onSigmaChange: (v: number) => void
-  }>,
-) {
-  return () => {
-    let p = handle.props
-    return (
-      <div mix={stationConfigStyle}>
-        <div mix={stationConfigHeaderStyle}>
-          <span mix={stationConfigIndexStyle}>#{p.index + 1}</span>
-          <span mix={stationConfigNameStyle}>{p.name}</span>
-        </div>
-        <Field label={`μ ${p.mean.toFixed(1)} s`}>
-          <input
-            type="range"
-            min="1"
-            max="30"
-            step="0.5"
-            value={String(p.mean)}
-            mix={[
-              sliderStyle,
-              on('input', (event) => p.onMeanChange(Number(event.currentTarget.value))),
-            ]}
-          />
-        </Field>
-        <Field label={`σ ${p.sigma.toFixed(1)}`}>
-          <input
-            type="range"
-            min="0"
-            max="8"
-            step="0.1"
-            value={String(p.sigma)}
-            mix={[
-              sliderStyle,
-              on('input', (event) => p.onSigmaChange(Number(event.currentTarget.value))),
-            ]}
-          />
-        </Field>
-      </div>
-    )
-  }
 }
 
 function PresetButton(
@@ -459,7 +421,10 @@ function PresetButton(
   return () => {
     let { preset, active, onClick } = handle.props
     return (
-      <button type="button" mix={[presetButtonStyle(active), on('click', onClick)]}>
+      <button
+        type="button"
+        mix={[active ? presetActiveStyle : presetStyle, on('click', onClick)]}
+      >
         <span mix={presetNameStyle}>{preset.name}</span>
         <span mix={presetDescStyle}>{preset.description}</span>
       </button>
@@ -467,369 +432,228 @@ function PresetButton(
   }
 }
 
-function Stat(handle: Handle<{ label: string; value: string }>) {
+function Metric(handle: Handle<{ label: string; value: string; unit: string }>) {
   return () => (
-    <div mix={statStyle}>
-      <span mix={statLabelStyle}>{handle.props.label}</span>
-      <span mix={statValueStyle}>{handle.props.value}</span>
+    <div mix={metricCardStyle}>
+      <div mix={metricLabelStyle}>{handle.props.label}</div>
+      <div mix={metricValueRowStyle}>
+        <span mix={metricValueStyle}>{handle.props.value}</span>
+        <span mix={metricUnitStyle}>{handle.props.unit}</span>
+      </div>
     </div>
   )
 }
 
-function Panel(handle: Handle<{ title: string; children?: unknown }>) {
-  return () => (
-    <section mix={panelStyle}>
-      <h2 mix={panelTitleStyle}>{handle.props.title}</h2>
-      <div mix={panelBodyStyle}>{handle.props.children as never}</div>
-    </section>
-  )
-}
-
-function Field(handle: Handle<{ label: string; children?: unknown }>) {
-  return () => (
-    <label mix={fieldStyle}>
-      <span mix={fieldLabelStyle}>{handle.props.label}</span>
-      {handle.props.children as never}
-    </label>
-  )
-}
+// -------------------------------------------------------------------------
+// Styles
+// -------------------------------------------------------------------------
 
 const pageStyle = css({
-  '--surface-0': '#dee2e6',
-  '--surface-3': '#f0f4f7',
-  '--surface-4': '#f7fbff',
-  '--text-primary': '#313539',
-  '--text-tertiary': '#6f757b',
-  '--brand-blue': '#2dacf9',
-  '@media (prefers-color-scheme: dark)': {
-    '--surface-0': '#1e2226',
-    '--surface-3': '#3a4148',
-    '--surface-4': '#4a525a',
-    '--text-primary': '#e8ecef',
-    '--text-tertiary': '#a8aeb3',
-  },
-  '& *, & *::before, & *::after': { boxSizing: 'border-box' },
-  fontFamily:
-    "'JetBrains Mono', ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
-  color: 'var(--text-primary)',
-  background: 'var(--surface-0)',
-  minHeight: '100vh',
-  margin: 0,
-  padding: '32px clamp(16px, 4vw, 48px) 64px',
+  fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
+  color: T.ink,
   display: 'flex',
   flexDirection: 'column',
-  gap: '24px',
+  gap: '28px',
 })
 
-const headerStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '8px',
-  maxWidth: '720px',
-})
-
-const backLinkStyle = css({
-  alignSelf: 'flex-start',
-  fontSize: '12px',
-  color: 'var(--text-tertiary)',
-  textDecoration: 'none',
-  transition: 'color 120ms ease',
-  '&:hover, &:focus-visible': {
-    color: 'var(--brand-blue)',
-    outline: 'none',
-  },
-})
-
-const titleStyle = css({
-  margin: 0,
-  fontSize: '24px',
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-})
-
-const subtitleStyle = css({
-  margin: 0,
-  fontSize: '14px',
-  lineHeight: 1.6,
-  color: 'var(--text-tertiary)',
-})
-
-const controlBarStyle = css({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '8px',
-  flexWrap: 'wrap',
-})
-
-const baseButtonStyle = {
-  appearance: 'none',
-  font: 'inherit',
-  fontSize: '13px',
-  cursor: 'pointer',
-  padding: '8px 14px',
-  borderRadius: '8px',
-  border: 0,
-  transition: 'background-color 120ms ease, color 120ms ease',
-  '&:disabled': { opacity: 0.4, cursor: 'not-allowed' },
-} as const
-
-const primaryButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'var(--brand-blue)',
-  color: 'white',
-  fontWeight: 700,
-  '&:hover:not(:disabled)': { filter: 'brightness(1.05)' },
-})
-
-const secondaryButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'var(--surface-3)',
-  color: 'var(--text-primary)',
-  '&:hover:not(:disabled)': { background: 'var(--surface-4)' },
-})
-
-const ghostButtonStyle = css({
-  ...baseButtonStyle,
-  background: 'transparent',
-  color: 'var(--text-primary)',
-  border: '1px solid var(--surface-3)',
-  '&:hover:not(:disabled)': { background: 'var(--surface-4)' },
-})
-
-const speedGroupStyle = css({
-  display: 'inline-flex',
-  borderRadius: '8px',
-  overflow: 'hidden',
-  border: '1px solid var(--surface-3)',
-})
-
-function speedButtonStyle(active: boolean) {
-  return css({
-    ...baseButtonStyle,
-    padding: '6px 10px',
-    borderRadius: 0,
-    background: active ? 'var(--brand-blue)' : 'transparent',
-    color: active ? 'white' : 'var(--text-primary)',
-    fontWeight: active ? 700 : 400,
-    '&:hover:not(:disabled)': {
-      background: active ? 'var(--brand-blue)' : 'var(--surface-4)',
-    },
-  })
-}
-
-const timeStyle = css({
-  fontSize: '12px',
-  color: 'var(--text-tertiary)',
-  marginLeft: 'auto',
-})
-
-const mainGridStyle = css({
+const twoColStyle = css({
   display: 'grid',
   gridTemplateColumns: 'minmax(0, 1fr) 320px',
   gap: '24px',
-  '@media (max-width: 960px)': { gridTemplateColumns: 'minmax(0, 1fr)' },
+  alignItems: 'flex-start',
+  '@media (max-width: 1100px)': { gridTemplateColumns: 'minmax(0, 1fr)' },
 })
 
-const leftColumnStyle = css({
+const mainColumnStyle = css({
   display: 'flex',
   flexDirection: 'column',
-  gap: '20px',
+  gap: '24px',
   minWidth: 0,
 })
 
-const rightColumnStyle = css({
+const asideStyle = css({
   display: 'flex',
   flexDirection: 'column',
   gap: '16px',
+  position: 'sticky',
+  top: '96px',
+  '@media (max-width: 1100px)': { position: 'static', top: 'auto' },
 })
 
 const lineWrapStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '16px',
-  overflowX: 'auto',
-})
-
-const lineStyle = css({
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
-  display: 'flex',
+  display: 'grid',
+  gridTemplateColumns: 'repeat(5, minmax(0, 1fr)) auto',
   alignItems: 'stretch',
-  gap: '0',
-  minWidth: 'fit-content',
-})
-
-const lineItemStyle = css({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '0',
+  gap: 0,
+  overflowX: 'auto',
+  '@media (max-width: 880px)': {
+    gridTemplateColumns: 'repeat(2, minmax(0, 1fr)) auto',
+  },
+  '@media (max-width: 520px)': {
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+  },
 })
 
 const stationCardStyle = css({
-  width: '120px',
-  background: 'var(--surface-4)',
-  borderRadius: '8px',
-  padding: '10px',
+  border: `1px solid ${T.ink}`,
+  marginRight: '-1px',
+  padding: '12px',
+  position: 'relative',
   display: 'flex',
   flexDirection: 'column',
-  gap: '6px',
+  gap: '4px',
+  minWidth: '120px',
 })
 
-const stationHeaderStyle = css({
+const stationTopStyle = css({
   display: 'flex',
-  alignItems: 'baseline',
-  gap: '6px',
+  justifyContent: 'space-between',
+  fontSize: '9px',
+  letterSpacing: '0.14em',
+  opacity: 0.7,
 })
 
-const stationIndexStyle = css({
-  fontSize: '10px',
-  color: 'var(--text-tertiary)',
+const bufferChipStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '1px 6px',
+  fontSize: '9px',
+  letterSpacing: '0.1em',
+  opacity: 0.85,
+})
+
+const bufferChipWarnStyle = css({
+  border: `1px solid ${T.warn}`,
+  background: `rgba(181,138,22,0.15)`,
+  color: T.warn,
+  padding: '1px 6px',
+  fontSize: '9px',
+  letterSpacing: '0.1em',
   fontWeight: 700,
 })
 
 const stationNameStyle = css({
-  fontSize: '13px',
+  fontSize: '15px',
   fontWeight: 700,
-  color: 'var(--text-primary)',
+  letterSpacing: '0.02em',
+  marginTop: '2px',
 })
 
-const stationBodyStyle = css({
-  display: 'flex',
-  alignItems: 'center',
-  gap: '6px',
-})
-
-function stateDotStyle(color: string) {
-  return css({
-    display: 'inline-block',
-    width: '10px',
-    height: '10px',
-    borderRadius: '50%',
-    background: color,
-    flex: '0 0 auto',
-  })
-}
-
-const stateLabelStyle = css({
-  fontSize: '11px',
-  color: 'var(--text-primary)',
-})
-
-const stationFooterStyle = css({
+const stationStateStyle = css({
   fontSize: '10px',
-  color: 'var(--text-tertiary)',
+  letterSpacing: '0.14em',
+  fontWeight: 700,
+  marginTop: '4px',
 })
 
-const bufferStyle = css({
-  width: '60px',
+const stationUtilLabelStyle = css({
+  marginTop: '6px',
+  fontSize: '9px',
+  letterSpacing: '0.14em',
+  opacity: 0.7,
+})
+
+const stationUtilValueStyle = css({
+  fontSize: '20px',
+  fontWeight: 700,
+  lineHeight: 1,
+  color: T.accent,
+})
+
+const utilTrackStyle = css({
+  marginTop: '4px',
+  height: '5px',
+  border: `1px solid ${T.ink}`,
+})
+
+const utilFillStyle = css({
+  height: '100%',
+  background: T.accent,
+  transition: 'width 200ms ease',
+})
+
+const outArrowStyle = css({
+  borderTop: `1px solid ${T.ink}`,
+  borderRight: `1px solid ${T.ink}`,
+  borderBottom: `1px solid ${T.ink}`,
+  padding: '12px',
   display: 'flex',
-  flexDirection: 'column',
   alignItems: 'center',
-  justifyContent: 'center',
-  gap: '4px',
-  padding: '0 8px',
-})
-
-const bufferStackStyle = css({
-  display: 'flex',
-  flexDirection: 'column-reverse',
-  alignItems: 'center',
-  gap: '2px',
-  minHeight: '32px',
-})
-
-const bufferDotStyle = css({
-  width: '8px',
-  height: '4px',
-  background: 'var(--brand-blue)',
-  borderRadius: '2px',
-})
-
-const bufferCountStyle = css({
   fontSize: '10px',
-  color: 'var(--text-tertiary)',
+  letterSpacing: '0.14em',
+  opacity: 0.7,
+  whiteSpace: 'nowrap',
 })
 
 const metricsRowStyle = css({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))',
-  gap: '8px',
+  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gap: '12px',
+  '@media (max-width: 720px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
 })
 
-const statStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '8px',
-  padding: '10px 12px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '2px',
+const metricCardStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '12px',
+  background: T.panel,
+  position: 'relative',
 })
 
-const statLabelStyle = css({
+const metricLabelStyle = css({
   fontSize: '10px',
+  letterSpacing: '0.14em',
   fontWeight: 700,
+  opacity: 0.7,
   textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
 })
 
-const statValueStyle = css({
-  fontSize: '15px',
+const metricValueRowStyle = css({
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: '6px',
+  marginTop: '6px',
+})
+
+const metricValueStyle = css({
+  fontSize: '30px',
   fontWeight: 700,
-  color: 'var(--text-primary)',
+  lineHeight: 1,
+  color: T.ink,
 })
 
-const sparklinesStyle = css({
+const metricUnitStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.14em',
+  opacity: 0.6,
+})
+
+const sparkRowStyle = css({
   display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
-  gap: '8px',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))',
+  gap: '12px',
 })
 
-const statTableStyle = css({
+const tableScrollStyle = css({ overflowX: 'auto' })
+
+const tableStyle = css({
   width: '100%',
   borderCollapse: 'collapse',
-  fontSize: '12px',
-  background: 'var(--surface-4)',
-  borderRadius: '8px',
-  overflow: 'hidden',
+  fontSize: '11px',
+  fontVariantNumeric: 'tabular-nums',
 })
 
 const thStyle = css({
   textAlign: 'left',
-  padding: '8px 10px',
+  padding: '6px 8px',
   fontWeight: 700,
-  background: 'var(--surface-3)',
-  borderBottom: '1px solid var(--surface-0)',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  fontSize: '10px',
+  borderBottom: `1px solid ${T.ink}`,
 })
 
 const tdStyle = css({
-  padding: '6px 10px',
-  borderBottom: '1px solid var(--surface-3)',
-})
-
-const panelStyle = css({
-  background: 'var(--surface-3)',
-  borderRadius: '12px',
-  padding: '16px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
-})
-
-const panelTitleStyle = css({
-  margin: 0,
-  fontSize: '12px',
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  letterSpacing: '0.08em',
-  color: 'var(--text-tertiary)',
-})
-
-const panelBodyStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '12px',
+  padding: '5px 8px',
+  borderBottom: `1px dashed ${T.ink}`,
 })
 
 const presetGridStyle = css({
@@ -838,30 +662,37 @@ const presetGridStyle = css({
   gap: '6px',
 })
 
-function presetButtonStyle(active: boolean) {
-  return css({
-    appearance: 'none',
-    font: 'inherit',
-    cursor: 'pointer',
-    padding: '10px 12px',
-    borderRadius: '8px',
-    background: active ? 'var(--brand-blue)' : 'var(--surface-4)',
-    color: active ? 'white' : 'var(--text-primary)',
-    border: 0,
-    textAlign: 'left',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '4px',
-    transition: 'background-color 120ms ease',
-    '&:hover': {
-      background: active ? 'var(--brand-blue)' : 'var(--surface-0)',
-    },
-  })
-}
+const presetBaseStyle = {
+  appearance: 'none',
+  fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
+  cursor: 'pointer',
+  padding: '10px 12px',
+  border: `1px solid ${T.ink}`,
+  textAlign: 'left',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '4px',
+  transition: 'background-color 120ms ease',
+} as const
+
+const presetStyle = css({
+  ...presetBaseStyle,
+  background: 'transparent',
+  color: T.ink,
+  '&:hover': { background: T.panelStrong },
+})
+
+const presetActiveStyle = css({
+  ...presetBaseStyle,
+  background: T.ink,
+  color: T.paper,
+})
 
 const presetNameStyle = css({
-  fontSize: '13px',
+  fontSize: '12px',
   fontWeight: 700,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
 })
 
 const presetDescStyle = css({
@@ -870,65 +701,66 @@ const presetDescStyle = css({
   lineHeight: 1.4,
 })
 
-const modeRowStyle = css({
+const twoButtonRowStyle = css({
   display: 'grid',
   gridTemplateColumns: '1fr 1fr',
-  gap: '8px',
+  gap: '6px',
 })
 
-function modeButtonStyle(active: boolean) {
-  return css({
-    ...baseButtonStyle,
-    background: active ? 'var(--brand-blue)' : 'var(--surface-4)',
-    color: active ? 'white' : 'var(--text-primary)',
-    fontWeight: active ? 700 : 400,
-    '&:hover': {
-      background: active ? 'var(--brand-blue)' : 'var(--surface-0)',
-    },
-  })
-}
+const speedGroupStyle = css({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, 1fr)',
+  marginTop: '8px',
+  marginBottom: '8px',
+  border: `1px solid ${T.ink}`,
+})
+
+const speedBaseStyle = {
+  appearance: 'none',
+  fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
+  cursor: 'pointer',
+  padding: '6px 8px',
+  border: 0,
+  borderRight: `1px solid ${T.ink}`,
+  fontSize: '11px',
+  letterSpacing: '0.1em',
+  fontWeight: 700,
+  transition: 'background-color 120ms ease',
+  '&:last-child': { borderRight: 0 },
+} as const
+
+const speedButtonStyle = css({
+  ...speedBaseStyle,
+  background: 'transparent',
+  color: T.ink,
+  '&:hover': { background: T.panelStrong },
+})
+
+const speedButtonActiveStyle = css({
+  ...speedBaseStyle,
+  background: T.ink,
+  color: T.paper,
+})
 
 const stationConfigListStyle = css({
   display: 'flex',
   flexDirection: 'column',
-  gap: '10px',
+  gap: '12px',
 })
 
-const stationConfigStyle = css({
-  background: 'var(--surface-4)',
-  borderRadius: '8px',
+const stationConfigCardStyle = css({
+  border: `1px dashed ${T.ink}`,
   padding: '10px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
 })
 
 const stationConfigHeaderStyle = css({
-  display: 'flex',
-  alignItems: 'baseline',
-  gap: '6px',
-})
-
-const stationConfigIndexStyle = css({
   fontSize: '10px',
-  color: 'var(--text-tertiary)',
+  letterSpacing: '0.14em',
   fontWeight: 700,
+  marginBottom: '8px',
 })
 
-const stationConfigNameStyle = css({
-  fontSize: '13px',
-  fontWeight: 700,
-})
-
-const fieldStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '4px',
-})
-
-const fieldLabelStyle = css({
+const noteStyle = css({
   fontSize: '11px',
-  color: 'var(--text-primary)',
+  lineHeight: 1.55,
 })
-
-const sliderStyle = css({ width: '100%' })

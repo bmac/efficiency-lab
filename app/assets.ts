@@ -13,6 +13,7 @@ export const assets = createAssetServer({
     'app/stats.ts',
     'app/ui/prompt-button.tsx',
     'app/ui/control-chart.tsx',
+    'app/ui/shell.tsx',
     'app/controllers/red-beads/**',
     'app/controllers/shewhart/**',
     'app/controllers/pin-factory/**',
