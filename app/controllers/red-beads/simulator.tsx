@@ -1,5 +1,6 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
+import { routes } from '../../routes.ts'
 import { ControlChart } from '../../ui/control-chart.tsx'
 import {
   drawBinomial,
@@ -200,6 +201,9 @@ export const RedBeadSimulator = clientEntry(
       return (
         <article mix={pageStyle}>
           <header mix={headerStyle}>
+            <a href={routes.home.href()} mix={backLinkStyle}>
+              ← All tools
+            </a>
             <h1 mix={titleStyle}>The Red Bead Experiment</h1>
             <p mix={subtitleStyle}>
               Six "Willing Workers" each scoop {config.paddleSize} beads from a jar of{' '}
@@ -432,30 +436,46 @@ function Jar(handle: Handle<{ redFraction: number }>) {
     let rows = 8
     let total = cols * rows
     let reds = Math.round(total * redFraction)
-    let cells: { red: boolean; key: string }[] = []
-    let strideTotal = total
-    let strideRed = reds
-    for (let i = 0; i < total; i++) {
-      let isRed = (i * strideRed) % strideTotal < strideRed
-      cells.push({ red: isRed, key: `b-${i}` })
-    }
     let r = 6
     let gap = 4
-    let w = cols * (r * 2 + gap)
-    let h = rows * (r * 2 + gap)
+    let cellSize = r * 2 + gap
+    let w = cols * cellSize
+    let h = rows * cellSize
+    let jitter = 3
+
+    // Seeded so SSR and client hydration produce identical layouts. Calling the
+    // same operations in the same order each render keeps positions stable; only
+    // the red/white assignment moves when redFraction changes.
+    let rand = mulberry32(0xbead5)
+    let dx: number[] = []
+    let dy: number[] = []
+    for (let i = 0; i < total; i++) {
+      dx.push((rand() * 2 - 1) * jitter)
+      dy.push((rand() * 2 - 1) * jitter)
+    }
+    let order: number[] = Array.from({ length: total }, (_, i) => i)
+    for (let i = total - 1; i > 0; i--) {
+      let j = Math.floor(rand() * (i + 1))
+      let tmp = order[i]
+      order[i] = order[j]
+      order[j] = tmp
+    }
+    let isRed: boolean[] = new Array(total).fill(false)
+    for (let i = 0; i < reds; i++) isRed[order[i]] = true
+
     return (
       <div mix={jarWrapStyle}>
         <svg viewBox={`0 0 ${w} ${h}`} width="100%" mix={jarSvgStyle}>
-          {cells.map((c, i) => {
+          {Array.from({ length: total }).map((_, i) => {
             let col = i % cols
             let row = Math.floor(i / cols)
             return (
               <circle
-                key={c.key}
-                cx={col * (r * 2 + gap) + r}
-                cy={row * (r * 2 + gap) + r}
+                key={`b-${i}`}
+                cx={col * cellSize + r + dx[i]}
+                cy={row * cellSize + r + dy[i]}
                 r={r}
-                fill={c.red ? '#ff5148' : 'var(--surface-0)'}
+                fill={isRed[i] ? '#ff5148' : 'var(--surface-0)'}
                 stroke="var(--text-tertiary)"
                 stroke-opacity="0.25"
               />
@@ -626,10 +646,10 @@ const pageStyle = css({
   '--brand-blue': '#2dacf9',
   '@media (prefers-color-scheme: dark)': {
     '--surface-0': '#1e2226',
-    '--surface-3': '#313539',
-    '--surface-4': '#363a3e',
-    '--text-primary': '#dee2e6',
-    '--text-tertiary': '#94989c',
+    '--surface-3': '#3a4148',
+    '--surface-4': '#4a525a',
+    '--text-primary': '#e8ecef',
+    '--text-tertiary': '#a8aeb3',
   },
   '& *, & *::before, & *::after': { boxSizing: 'border-box' },
   fontFamily:
@@ -649,6 +669,18 @@ const headerStyle = css({
   flexDirection: 'column',
   gap: '8px',
   maxWidth: '720px',
+})
+
+const backLinkStyle = css({
+  alignSelf: 'flex-start',
+  fontSize: '12px',
+  color: 'var(--text-tertiary)',
+  textDecoration: 'none',
+  transition: 'color 120ms ease',
+  '&:hover, &:focus-visible': {
+    color: 'var(--brand-blue)',
+    outline: 'none',
+  },
 })
 
 const titleStyle = css({

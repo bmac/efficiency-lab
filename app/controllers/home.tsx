@@ -85,10 +85,10 @@ const pageStyle = css({
   '--brand-blue': '#2dacf9',
   '@media (prefers-color-scheme: dark)': {
     '--surface-0': '#1e2226',
-    '--surface-3': '#313539',
-    '--surface-4': '#363a3e',
-    '--text-primary': '#dee2e6',
-    '--text-tertiary': '#94989c',
+    '--surface-3': '#3a4148',
+    '--surface-4': '#4a525a',
+    '--text-primary': '#e8ecef',
+    '--text-tertiary': '#a8aeb3',
   },
   '& *, & *::before, & *::after': { boxSizing: 'border-box' },
   fontFamily:

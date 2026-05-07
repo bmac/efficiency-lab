@@ -1,5 +1,6 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
+import { routes } from '../../routes.ts'
 import {
   WESTERN_ELECTRIC_RULES,
   detectWesternElectric,
@@ -133,6 +134,9 @@ export const ShewhartSandbox = clientEntry(
       return (
         <article mix={pageStyle}>
           <header mix={headerStyle}>
+            <a href={routes.home.href()} mix={backLinkStyle}>
+              ← All tools
+            </a>
             <h1 mix={titleStyle}>Shewhart Sandbox</h1>
             <p mix={subtitleStyle}>
               Generate a stable process. Inject special causes. Watch the chart over-react. The
@@ -520,10 +524,10 @@ const pageStyle = css({
   '--brand-blue': '#2dacf9',
   '@media (prefers-color-scheme: dark)': {
     '--surface-0': '#1e2226',
-    '--surface-3': '#313539',
-    '--surface-4': '#363a3e',
-    '--text-primary': '#dee2e6',
-    '--text-tertiary': '#94989c',
+    '--surface-3': '#3a4148',
+    '--surface-4': '#4a525a',
+    '--text-primary': '#e8ecef',
+    '--text-tertiary': '#a8aeb3',
   },
   '& *, & *::before, & *::after': { boxSizing: 'border-box' },
   fontFamily:
@@ -543,6 +547,18 @@ const headerStyle = css({
   flexDirection: 'column',
   gap: '8px',
   maxWidth: '720px',
+})
+
+const backLinkStyle = css({
+  alignSelf: 'flex-start',
+  fontSize: '12px',
+  color: 'var(--text-tertiary)',
+  textDecoration: 'none',
+  transition: 'color 120ms ease',
+  '&:hover, &:focus-visible': {
+    color: 'var(--brand-blue)',
+    outline: 'none',
+  },
 })
 
 const titleStyle = css({
