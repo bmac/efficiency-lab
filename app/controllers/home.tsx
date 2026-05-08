@@ -247,6 +247,60 @@ function CatalogSchema() {
         </svg>
       )
     }
+    if (kind === 'parallel') {
+      return (
+        <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
+          {[0, 1].map((row) => (
+            <g key={`pr-${row}`}>
+              {[0, 1, 2, 3, 4].map((i) => (
+                <g key={`pp-${row}-${i}`}>
+                  <rect
+                    x={4 + i * 21}
+                    y={row === 0 ? 8 : 38}
+                    width={row === 0 ? 16 : 6}
+                    height="14"
+                    fill={row === 0 ? T.accent : T.ink}
+                    opacity={row === 0 ? 0.85 : 1}
+                    stroke={T.ink}
+                    stroke-width="0.6"
+                  />
+                  {i < 4 && (
+                    <line
+                      x1={row === 0 ? 20 + i * 21 : 10 + i * 21}
+                      y1={row === 0 ? 15 : 45}
+                      x2={25 + i * 21}
+                      y2={row === 0 ? 15 : 45}
+                      stroke={T.ink}
+                      stroke-width="0.6"
+                    />
+                  )}
+                </g>
+              ))}
+            </g>
+          ))}
+          <text
+            x="2"
+            y="32"
+            font-size="5"
+            font-family="IBM Plex Mono"
+            fill={T.ink}
+            opacity="0.7"
+          >
+            BATCH
+          </text>
+          <text
+            x="2"
+            y="58"
+            font-size="5"
+            font-family="IBM Plex Mono"
+            fill={T.ink}
+            opacity="0.7"
+          >
+            FLOW
+          </text>
+        </svg>
+      )
+    }
     return (
       <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
         {[0, 1, 2, 3, 4].map((i) => (

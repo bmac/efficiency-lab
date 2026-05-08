@@ -21,6 +21,7 @@ describe('router', () => {
     assert.match(body, /Red Bead/)
     assert.match(body, /Shewhart/)
     assert.match(body, /Pin Factory/)
+    assert.match(body, /Batch vs\. Flow/)
   })
 
   it('GET /red-beads renders the simulator', async () => {
@@ -49,6 +50,17 @@ describe('router', () => {
     assert.match(body, /Head/)
     assert.match(body, /Paint/)
     assert.match(body, /Pause/)
+  })
+
+  it('GET /batch-vs-flow renders the comparison sheet', async () => {
+    let { status, body } = await get(routes.batchVsFlow.href())
+    assert.equal(status, 200)
+    assert.match(body, /Batch vs\. Flow/)
+    assert.match(body, /Batch line/)
+    assert.match(body, /Flow line/)
+    assert.match(body, /Batch size/i)
+    assert.match(body, /Lead time/i)
+    assert.match(body, /WIP/)
   })
 
   it('GET /unknown returns 404', async () => {
