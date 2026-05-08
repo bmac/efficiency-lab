@@ -351,14 +351,12 @@ function StationCard(
   return () => {
     let { station, index } = handle.props
     let bufN = station.bufferDepth
-    let bufWarn = bufN > 5
+    let bufWarn = bufN > BUFFER_WARN_THRESHOLD
     return (
       <div mix={stationCardStyle}>
         <div mix={stationTopStyle}>
-          <span>STN.{String(index + 1).padStart(2, '0')}</span>
-          {index > 0 && (
-            <span mix={bufWarn ? bufferChipWarnStyle : bufferChipStyle}>← {bufN}</span>
-          )}
+          <span mix={stationCodeStyle}>STN.{String(index + 1).padStart(2, '0')}</span>
+          {index > 0 && <BufferStack depth={bufN} warn={bufWarn} />}
         </div>
         <div mix={stationNameStyle}>{station.name}</div>
         <div
@@ -375,6 +373,42 @@ function StationCard(
             style={{ width: `${Math.min(100, station.utilization * 100)}%` }}
           />
         </div>
+      </div>
+    )
+  }
+}
+
+const BUFFER_STACK_MAX = 10
+const BUFFER_WARN_THRESHOLD = 5
+
+function BufferStack(handle: Handle<{ depth: number; warn: boolean }>) {
+  return () => {
+    let { depth, warn } = handle.props
+    let displayCount = Math.min(depth, BUFFER_STACK_MAX)
+    let overflow = depth > BUFFER_STACK_MAX
+    let cells = []
+    for (let i = 0; i < BUFFER_STACK_MAX; i++) {
+      let filledFromBottom = i >= BUFFER_STACK_MAX - displayCount
+      cells.push(
+        <span
+          key={`bc-${i}`}
+          mix={
+            filledFromBottom
+              ? warn
+                ? bufferCellWarnStyle
+                : bufferCellFilledStyle
+              : bufferCellEmptyStyle
+          }
+        />,
+      )
+    }
+    return (
+      <div mix={warn ? bufferStackWarnStyle : bufferStackStyle}>
+        <div mix={bufferStackCountStyle}>
+          ← {depth}
+          {overflow ? '+' : ''}
+        </div>
+        <div mix={bufferStackCellsStyle}>{cells}</div>
       </div>
     )
   }
@@ -508,27 +542,72 @@ const stationCardStyle = css({
 const stationTopStyle = css({
   display: 'flex',
   justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  gap: '8px',
+  minHeight: '74px',
+})
+
+const stationCodeStyle = css({
   fontSize: '9px',
   letterSpacing: '0.14em',
   opacity: 0.7,
 })
 
-const bufferChipStyle = css({
+const bufferStackBase = {
+  display: 'flex',
+  flexDirection: 'column',
+  width: '32px',
   border: `1px solid ${T.ink}`,
-  padding: '1px 6px',
-  fontSize: '9px',
-  letterSpacing: '0.1em',
-  opacity: 0.85,
+} as const
+
+const bufferStackStyle = css({
+  ...bufferStackBase,
 })
 
-const bufferChipWarnStyle = css({
-  border: `1px solid ${T.warn}`,
-  background: `rgba(181,138,22,0.15)`,
+const bufferStackWarnStyle = css({
+  ...bufferStackBase,
+  borderColor: T.warn,
+  background: 'rgba(181,138,22,0.12)',
   color: T.warn,
-  padding: '1px 6px',
+})
+
+const bufferStackCountStyle = css({
+  textAlign: 'center',
   fontSize: '9px',
-  letterSpacing: '0.1em',
   fontWeight: 700,
+  letterSpacing: '0.05em',
+  padding: '2px 0 1px',
+  borderBottom: `1px solid currentColor`,
+  fontVariantNumeric: 'tabular-nums',
+})
+
+const bufferStackCellsStyle = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '1px',
+  padding: '2px',
+})
+
+const bufferCellBase = {
+  display: 'block',
+  height: '4px',
+} as const
+
+const bufferCellFilledStyle = css({
+  ...bufferCellBase,
+  background: T.ink,
+})
+
+const bufferCellWarnStyle = css({
+  ...bufferCellBase,
+  background: T.warn,
+})
+
+const bufferCellEmptyStyle = css({
+  ...bufferCellBase,
+  background: 'transparent',
+  outline: `1px dashed ${T.ruleFaint}`,
+  outlineOffset: '-1px',
 })
 
 const stationNameStyle = css({
