@@ -51,6 +51,15 @@ describe('router', () => {
     assert.match(body, /Pause/)
   })
 
+  it('GET /batch-vs-flow renders both pipelines', async () => {
+    let { status, body } = await get(routes.batchVsFlow.href())
+    assert.equal(status, 200)
+    assert.match(body, /Batch vs\. Flow/)
+    assert.match(body, /Batch line/)
+    assert.match(body, /Flow line/)
+    assert.match(body, /Batch size/)
+  })
+
   it('GET /unknown returns 404', async () => {
     let response = await router.fetch(new Request(ORIGIN + '/does-not-exist'))
     assert.equal(response.status, 404)
