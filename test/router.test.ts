@@ -60,6 +60,17 @@ describe('router', () => {
     assert.match(body, /Batch size/)
   })
 
+  it('GET /bessemer renders the steel-mill lab', async () => {
+    let { status, body } = await get(routes.bessemer.href())
+    assert.equal(status, 200)
+    assert.match(body, /Bessemer Cost Collapse/)
+    assert.match(body, /Puddling/)
+    assert.match(body, /Bessemer/)
+    assert.match(body, /Open hearth/)
+    assert.match(body, /1850/)
+    assert.match(body, /1910/)
+  })
+
   it('GET /unknown returns 404', async () => {
     let response = await router.fetch(new Request(ORIGIN + '/does-not-exist'))
     assert.equal(response.status, 404)
