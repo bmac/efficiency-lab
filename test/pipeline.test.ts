@@ -2,9 +2,10 @@ import { describe, it } from 'node:test'
 import * as assert from 'node:assert/strict'
 
 import {
-  BatchVsFlowLab,
+  BatchVsFlowSimulation,
   DEFAULT_LAB_CONFIG,
   Pipeline,
+  SCENARIO_PRESETS,
   type PipelineConfig,
 } from '../app/controllers/batch-vs-flow/pipeline.ts'
 
@@ -19,6 +20,7 @@ function pipelineConfig(overrides: Partial<PipelineConfig> = {}): PipelineConfig
     varianceCV: 0,
     defectCorrelation: 0,
     unitCost: 10,
+    scrapAtStage: false,
     ...overrides,
   }
 }
@@ -121,23 +123,71 @@ describe('Pipeline', () => {
       `expected lumpy 0 or 50, got ${snap.defectsDiscovered}`,
     )
   })
+
+  it('scrapAtStage removes defective units mid-line and never inflates WIP', () => {
+    let cfg = pipelineConfig({
+      batchSize: 1,
+      scrapAtStage: true,
+      stages: [
+        { name: 'A', cycleTime: 0.1, setupTime: 0, defectRate: 1.0 },
+        { name: 'B', cycleTime: 0.1, setupTime: 0, defectRate: 0 },
+        { name: 'C', cycleTime: 0.1, setupTime: 0, defectRate: 0 },
+      ],
+    })
+    let p = new Pipeline(cfg, 1)
+    for (let i = 0; i < 10; i++) {
+      p.receiveUnit({ id: i, createdAt: 0, completedAt: null, defective: false })
+    }
+    p.step(200)
+    let snap = p.snapshot()
+    assert.equal(snap.defectsScrapped, 10, 'every unit should be scrapped at stage A')
+    assert.equal(snap.completedCount, 0, 'no units should complete')
+    assert.equal(snap.wip, 0, 'WIP should drain — scrap decrements it')
+  })
+
+  it('without scrapAtStage, defective units are carried to the end (defects ship)', () => {
+    let cfg = pipelineConfig({
+      batchSize: 1,
+      scrapAtStage: false,
+      stages: [
+        { name: 'A', cycleTime: 0.1, setupTime: 0, defectRate: 1.0 },
+        { name: 'B', cycleTime: 0.1, setupTime: 0, defectRate: 0 },
+        { name: 'C', cycleTime: 0.1, setupTime: 0, defectRate: 0 },
+      ],
+    })
+    let p = new Pipeline(cfg, 1)
+    for (let i = 0; i < 10; i++) {
+      p.receiveUnit({ id: i, createdAt: 0, completedAt: null, defective: false })
+    }
+    p.step(200)
+    let snap = p.snapshot()
+    assert.equal(snap.defectsScrapped, 0, 'batch line never scraps mid-line')
+    assert.equal(snap.completedCount, 10, 'all units should complete (defective or not)')
+    assert.equal(snap.defectsDiscovered, 10, 'all carried defects show up at end')
+  })
 })
 
-describe('BatchVsFlowLab', () => {
-  it('feeds the same demand stream to both pipelines', () => {
-    let lab = new BatchVsFlowLab({ ...DEFAULT_LAB_CONFIG, demandRate: 1, batchSize: 20, seed: 5 })
+describe('BatchVsFlowSimulation', () => {
+  it('feeds the same demand stream to both pipelines (accounting for flow scrap)', () => {
+    let lab = new BatchVsFlowSimulation({
+      ...DEFAULT_LAB_CONFIG,
+      demandRate: 1,
+      batchSize: 20,
+      seed: 5,
+    })
     lab.step(60)
     let batch = lab.batchPipeline.snapshot()
     let flow = lab.flowPipeline.snapshot()
-    // Both pipelines see the same arrivals (WIP+completed = total arrived).
-    let batchTotal = batch.completedCount + batch.wip
-    let flowTotal = flow.completedCount + flow.wip
+    // Both pipelines see the same arrivals. Flow may have scrapped some.
+    let batchTotal = batch.completedCount + batch.wip + batch.defectsScrapped
+    let flowTotal = flow.completedCount + flow.wip + flow.defectsScrapped
     assert.equal(batchTotal, flowTotal)
   })
 
   it('flow line ships its first unit before the batch line', () => {
-    let lab = new BatchVsFlowLab({
+    let lab = new BatchVsFlowSimulation({
       ...DEFAULT_LAB_CONFIG,
+      defectRate: 0,
       batchSize: 50,
       setupTime: 5,
       varianceCV: 0,
@@ -157,13 +207,16 @@ describe('BatchVsFlowLab', () => {
   })
 
   it('reducing batch size flushes a partial accumulator', () => {
-    let lab = new BatchVsFlowLab({ ...DEFAULT_LAB_CONFIG, batchSize: 20, demandRate: 0.5 })
+    let lab = new BatchVsFlowSimulation({
+      ...DEFAULT_LAB_CONFIG,
+      batchSize: 20,
+      demandRate: 0.5,
+    })
     lab.step(20)
     // Drop batch size — any partial accumulator should flush downstream.
     lab.setBatchSize(1)
     lab.step(0.01)
     let snap = lab.batchPipeline.snapshot()
-    // After a small step the first stage should at least see a batch in flight or done.
     let totalSeen = snap.stages.reduce(
       (sum, s) => sum + s.currentSize + s.queueUnits,
       snap.completedCount,
@@ -172,11 +225,72 @@ describe('BatchVsFlowLab', () => {
   })
 
   it('runs deterministically for a fixed seed', () => {
-    let a = new BatchVsFlowLab({ ...DEFAULT_LAB_CONFIG, seed: 42 })
-    let b = new BatchVsFlowLab({ ...DEFAULT_LAB_CONFIG, seed: 42 })
+    let a = new BatchVsFlowSimulation({ ...DEFAULT_LAB_CONFIG, seed: 42 })
+    let b = new BatchVsFlowSimulation({ ...DEFAULT_LAB_CONFIG, seed: 42 })
     a.step(120)
     b.step(120)
-    assert.equal(a.batchPipeline.snapshot().completedCount, b.batchPipeline.snapshot().completedCount)
-    assert.equal(a.flowPipeline.snapshot().completedCount, b.flowPipeline.snapshot().completedCount)
+    assert.equal(
+      a.batchPipeline.snapshot().completedCount,
+      b.batchPipeline.snapshot().completedCount,
+    )
+    assert.equal(
+      a.flowPipeline.snapshot().completedCount,
+      b.flowPipeline.snapshot().completedCount,
+    )
+  })
+
+  it('flow line scraps defects mid-line; batch line never does', () => {
+    let lab = new BatchVsFlowSimulation({
+      ...DEFAULT_LAB_CONFIG,
+      defectRate: 0.05,
+      defectCorrelation: 0,
+      varianceCV: 0,
+      demandRate: 1,
+      batchSize: 20,
+      seed: 17,
+    })
+    lab.step(300)
+    let batch = lab.batchPipeline.snapshot()
+    let flow = lab.flowPipeline.snapshot()
+    assert.equal(batch.defectsScrapped, 0, 'batch line should never scrap mid-line')
+    assert.ok(flow.defectsScrapped > 0, `flow line should scrap some defects, got ${flow.defectsScrapped}`)
+  })
+
+  it('bursty demand profile averages roughly to the nominal rate over a full cycle', () => {
+    let lab = new BatchVsFlowSimulation({
+      ...DEFAULT_LAB_CONFIG,
+      defectRate: 0,
+      demandRate: 1.0,
+      demandProfile: 'bursty',
+      batchSize: 1,
+      seed: 3,
+    })
+    // Run several full cycles (60s each) to wash out sampling noise.
+    lab.step(600)
+    let batch = lab.batchPipeline.snapshot()
+    let totalArrived = batch.completedCount + batch.wip + batch.defectsScrapped
+    // Expect roughly demandRate * time = 600 arrivals; allow ±25% sampling slack.
+    assert.ok(
+      totalArrived >= 450 && totalArrived <= 750,
+      `expected ~600 arrivals (±25%), got ${totalArrived}`,
+    )
+  })
+})
+
+describe('SCENARIO_PRESETS', () => {
+  it('every preset exposes a runnable LabConfig', () => {
+    for (let preset of SCENARIO_PRESETS) {
+      let lab = new BatchVsFlowSimulation({ ...preset.config, seed: 1 })
+      lab.step(30)
+      let batch = lab.batchPipeline.snapshot()
+      let flow = lab.flowPipeline.snapshot()
+      assert.ok(batch.time > 0, `${preset.id}: batch pipeline did not advance`)
+      assert.ok(flow.time > 0, `${preset.id}: flow pipeline did not advance`)
+    }
+  })
+
+  it('exposes the four expected presets', () => {
+    let ids = SCENARIO_PRESETS.map((p) => p.id).sort()
+    assert.deepEqual(ids, ['balanced', 'fourdrinier', 'fragile-electronics', 'papermaking-vats'])
   })
 })

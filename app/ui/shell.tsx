@@ -29,7 +29,7 @@ export interface LabMeta {
   short: string
   name: string
   sub: string
-  schema: 'jar' | 'chart' | 'line'
+  schema: 'jar' | 'chart' | 'line' | 'parallel'
   fig: string
   source: string
   est: string
@@ -83,7 +83,7 @@ export const LABS: LabMeta[] = [
     short: 'Batch vs. Flow',
     name: 'Batch vs. Flow',
     sub: 'Two parallel lines. Slide batch size and watch lead time, WIP, and capital diverge.',
-    schema: 'line',
+    schema: 'parallel',
     fig: 'Fig. 4.0 — Batch vs. flow',
     source: 'Potter, 2026',
     est: '7 min',
