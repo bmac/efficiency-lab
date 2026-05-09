@@ -22,14 +22,14 @@ export const FONT_STACK =
   '"IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
 
 export interface LabMeta {
-  slug: 'index' | 'red-beads' | 'shewhart' | 'pin-factory' | 'batch-vs-flow'
+  slug: 'index' | 'red-beads' | 'shewhart' | 'pin-factory' | 'batch-vs-flow' | 'bessemer'
   href: string
   id: string
   code: string
   short: string
   name: string
   sub: string
-  schema: 'jar' | 'chart' | 'line' | 'parallel'
+  schema: 'jar' | 'chart' | 'line' | 'parallel' | 'collapse'
   fig: string
   source: string
   est: string
@@ -87,6 +87,19 @@ export const LABS: LabMeta[] = [
     fig: 'Fig. 4.0 — Batch vs. flow',
     source: 'Potter, 2026',
     est: '7 min',
+  },
+  {
+    slug: 'bessemer',
+    href: '/bessemer',
+    id: '05',
+    code: 'BS-005',
+    short: 'Bessemer',
+    name: 'Bessemer Cost Collapse',
+    sub: 'Run a steel mill 1850–1910. Adopt new processes early or late. Time the switch.',
+    schema: 'collapse',
+    fig: 'Fig. 5.0 — Bessemer cost collapse',
+    source: 'Potter, Ch. 2',
+    est: '9 min',
   },
 ]
 

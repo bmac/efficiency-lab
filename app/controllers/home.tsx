@@ -247,6 +247,37 @@ function CatalogSchema() {
         </svg>
       )
     }
+    if (kind === 'collapse') {
+      // Two falling curves diverging — rail price collapse.
+      let mkt = 'M 4,12 Q 30,18 55,32 T 106,48'
+      let cost = 'M 4,18 Q 30,40 55,48 T 106,52'
+      return (
+        <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
+          <line
+            x1="0"
+            y1="50"
+            x2="110"
+            y2="50"
+            stroke={T.ink}
+            stroke-width="0.4"
+            opacity="0.4"
+          />
+          <path d={mkt} fill="none" stroke={T.ink} stroke-width="1" />
+          <path d={cost} fill="none" stroke={T.accent} stroke-width="1.4" />
+          <text
+            x="55"
+            y="58"
+            text-anchor="middle"
+            font-size="6"
+            font-family="IBM Plex Mono"
+            fill={T.ink}
+            opacity="0.6"
+          >
+            1850 · 1910
+          </text>
+        </svg>
+      )
+    }
     if (kind === 'parallel') {
       return (
         <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
