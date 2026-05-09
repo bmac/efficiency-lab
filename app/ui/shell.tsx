@@ -22,14 +22,14 @@ export const FONT_STACK =
   '"IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
 
 export interface LabMeta {
-  slug: 'index' | 'red-beads' | 'shewhart' | 'pin-factory'
+  slug: 'index' | 'red-beads' | 'shewhart' | 'pin-factory' | 'batch-vs-flow'
   href: string
   id: string
   code: string
   short: string
   name: string
   sub: string
-  schema: 'jar' | 'chart' | 'line'
+  schema: 'jar' | 'chart' | 'line' | 'parallel'
   fig: string
   source: string
   est: string
@@ -74,6 +74,19 @@ export const LABS: LabMeta[] = [
     fig: 'Fig. 3.0 — Serial line',
     source: 'Smith, 1776',
     est: '8 min',
+  },
+  {
+    slug: 'batch-vs-flow',
+    href: '/batch-vs-flow',
+    id: '04',
+    code: 'BF-004',
+    short: 'Batch vs. Flow',
+    name: 'Batch vs. Flow',
+    sub: 'Two parallel lines. Slide batch size and watch lead time, WIP, and capital diverge.',
+    schema: 'parallel',
+    fig: 'Fig. 4.0 — Batch vs. flow',
+    source: 'Potter, 2026',
+    est: '7 min',
   },
 ]
 

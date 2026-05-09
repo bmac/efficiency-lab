@@ -17,6 +17,7 @@ export const assets = createAssetServer({
     'app/controllers/red-beads/**',
     'app/controllers/shewhart/**',
     'app/controllers/pin-factory/**',
+    'app/controllers/batch-vs-flow/**',
     'node_modules/**',
   ],
   deny: ['app/**/*.server.*'],

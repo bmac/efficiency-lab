@@ -1,6 +1,7 @@
 import { createRouter } from 'remix/fetch-router'
 
 import { assets } from './assets.ts'
+import { batchVsFlow } from './controllers/batch-vs-flow/controller.tsx'
 import { home } from './controllers/home.tsx'
 import { pinFactory } from './controllers/pin-factory/controller.tsx'
 import { redBeads } from './controllers/red-beads/controller.tsx'
@@ -18,3 +19,4 @@ router.map(routes.home, home)
 router.map(routes.redBeads, redBeads)
 router.map(routes.shewhart, shewhart)
 router.map(routes.pinFactory, pinFactory)
+router.map(routes.batchVsFlow, batchVsFlow)
