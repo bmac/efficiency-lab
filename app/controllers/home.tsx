@@ -247,6 +247,65 @@ function CatalogSchema() {
         </svg>
       )
     }
+    if (kind === 'parallel') {
+      return (
+        <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
+          {[0, 1].map((row) => {
+            let y = row === 0 ? 12 : 38
+            let isBatch = row === 0
+            return (
+              <g key={`row-${row}`}>
+                {[0, 1, 2, 3, 4].map((i) => (
+                  <g key={`r-${row}-${i}`}>
+                    <rect
+                      x={4 + i * 21}
+                      y={y}
+                      width={isBatch ? 16 : 6}
+                      height="10"
+                      fill={isBatch ? T.accent : T.ink}
+                      opacity={isBatch ? 0.85 : 1}
+                      stroke={T.ink}
+                      stroke-width="0.6"
+                    />
+                    {i < 4 && (
+                      <line
+                        x1={isBatch ? 20 + i * 21 : 10 + i * 21}
+                        y1={y + 5}
+                        x2={25 + i * 21}
+                        y2={y + 5}
+                        stroke={T.ink}
+                        stroke-width="0.6"
+                      />
+                    )}
+                  </g>
+                ))}
+                <text
+                  x="2"
+                  y={y + 7}
+                  font-size="5"
+                  font-family="IBM Plex Mono"
+                  fill={T.ink}
+                  opacity="0.7"
+                >
+                  {isBatch ? 'B' : 'F'}
+                </text>
+              </g>
+            )
+          })}
+          <text
+            x="55"
+            y="58"
+            text-anchor="middle"
+            font-size="6"
+            font-family="IBM Plex Mono"
+            fill={T.ink}
+            opacity="0.6"
+          >
+            BATCH · FLOW
+          </text>
+        </svg>
+      )
+    }
     return (
       <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
         {[0, 1, 2, 3, 4].map((i) => (

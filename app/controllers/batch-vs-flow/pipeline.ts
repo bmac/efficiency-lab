@@ -13,6 +13,10 @@ export interface PipelineConfig {
   varianceCV: number
   defectCorrelation: number
   unitCost: number
+  // When true, defective units are scrapped at the stage where they fail
+  // rather than continuing to the end of the line. This is the "flow contains
+  // damage" mechanic — set true on the flow line, false on the batch line.
+  scrapAtStage: boolean
 }
 
 export interface UnitRecord {
@@ -49,7 +53,14 @@ export interface PipelineSnapshot {
   batchSize: number
   stages: StageSnapshot[]
   completedCount: number
+  // Defective units that reached end-of-line. The batch line carries every
+  // defective unit through all stages; the flow line scraps them at the stage
+  // where they failed, so this counts only defects that escape inspection
+  // (i.e. zero unless the inspection stage itself has a defect rate).
   defectsDiscovered: number
+  // Defective units removed mid-line (flow-style scrap). Always zero for the
+  // batch line, which carries defects through to inspection.
+  defectsScrapped: number
   wip: number
   capitalTiedUp: number
   avgLeadTime: number
@@ -74,6 +85,7 @@ export class Pipeline {
   private totalLeadTime = 0
   private completedCount = 0
   private discovered = 0
+  private scrapped = 0
   private cumulativeSeries: { t: number; value: number }[] = []
   private wipHistory: { t: number; value: number }[] = []
   private leadTimes: number[] = []
@@ -147,6 +159,7 @@ export class Pipeline {
       stages,
       completedCount: this.completedCount,
       defectsDiscovered: this.discovered,
+      defectsScrapped: this.scrapped,
       wip: this.wipCount,
       capitalTiedUp: this.wipCount * this.config.unitCost,
       avgLeadTime,
@@ -194,9 +207,15 @@ export class Pipeline {
         let batch = s.current!
         s.current = null
         s.phase = 'idle'
+        // Flow lines (scrapAtStage=true) drop newly-defective units at the
+        // stage where they failed. Batch lines carry them all the way to
+        // inspection — that's the "lumpy rework event" the lab is showing.
+        if (this.config.scrapAtStage && i < this.stages.length - 1) {
+          batch = this.scrapDefectives(batch)
+        }
         if (i === this.stages.length - 1) {
           this.completeBatch(batch)
-        } else {
+        } else if (batch.length > 0) {
           this.stages[i + 1].queue.push(batch)
         }
       }
@@ -244,6 +263,19 @@ export class Pipeline {
         if (this.prng() < rate) u.defective = true
       }
     }
+  }
+
+  private scrapDefectives(batch: UnitRecord[]): UnitRecord[] {
+    let kept: UnitRecord[] = []
+    for (let u of batch) {
+      if (u.defective) {
+        this.scrapped++
+        this.wipCount--
+      } else {
+        kept.push(u)
+      }
+    }
+    return kept
   }
 
   private completeBatch(batch: UnitRecord[]): void {
@@ -343,7 +375,71 @@ export const DEFAULT_LAB_CONFIG: LabConfig = {
   seed: 1,
 }
 
-export class BatchVsFlowLab {
+export interface ScenarioPreset {
+  id: string
+  name: string
+  description: string
+  config: LabConfig
+}
+
+export const SCENARIO_PRESETS: ScenarioPreset[] = [
+  {
+    id: 'balanced',
+    name: 'Balanced default',
+    description: 'Mid setup, mid defects. Slide batch size and watch trade-offs.',
+    config: { ...DEFAULT_LAB_CONFIG },
+  },
+  {
+    id: 'papermaking-vats',
+    name: 'Papermaking · 18C vats',
+    description: 'High setup time. Big batches dominate on throughput.',
+    config: {
+      ...DEFAULT_LAB_CONFIG,
+      cycleTime: 3,
+      setupTime: 30,
+      defectRate: 0.02,
+      defectCorrelation: 0.6,
+      batchSize: 80,
+      demandRate: 0.6,
+      demandProfile: 'steady',
+      unitCost: 12,
+    },
+  },
+  {
+    id: 'fourdrinier',
+    name: 'Fourdrinier · continuous',
+    description: 'Setup is negligible. Flow wins on lead time and ties on throughput.',
+    config: {
+      ...DEFAULT_LAB_CONFIG,
+      cycleTime: 2,
+      setupTime: 1,
+      defectRate: 0.005,
+      defectCorrelation: 0.3,
+      batchSize: 1,
+      demandRate: 0.5,
+      demandProfile: 'steady',
+      unitCost: 8,
+    },
+  },
+  {
+    id: 'fragile-electronics',
+    name: 'Fragile electronics',
+    description: 'High per-stage defect rate. Batch rework is lumpy; flow contains damage.',
+    config: {
+      ...DEFAULT_LAB_CONFIG,
+      cycleTime: 3,
+      setupTime: 4,
+      defectRate: 0.04,
+      defectCorrelation: 0.8,
+      batchSize: 40,
+      demandRate: 0.3,
+      demandProfile: 'bursty',
+      unitCost: 60,
+    },
+  },
+]
+
+export class BatchVsFlowSimulation {
   time = 0
   config: LabConfig
   batchPipeline: Pipeline
@@ -355,8 +451,14 @@ export class BatchVsFlowLab {
   constructor(config: LabConfig) {
     this.config = { ...config }
     this.prng = mulberry32(config.seed)
-    this.batchPipeline = new Pipeline(this.makePipelineConfig(config.batchSize), config.seed + 11)
-    this.flowPipeline = new Pipeline(this.makePipelineConfig(1), config.seed + 23)
+    this.batchPipeline = new Pipeline(
+      this.makePipelineConfig(config.batchSize, false),
+      config.seed + 11,
+    )
+    this.flowPipeline = new Pipeline(
+      this.makePipelineConfig(1, true),
+      config.seed + 23,
+    )
     this.nextArrivalTime = this.sampleArrival(0)
   }
 
@@ -405,7 +507,7 @@ export class BatchVsFlowLab {
     this.config.demandRate = Math.max(1e-4, rate)
   }
 
-  private makePipelineConfig(batchSize: number): PipelineConfig {
+  private makePipelineConfig(batchSize: number, scrapAtStage: boolean): PipelineConfig {
     let stages: StageConfig[] = []
     for (let i = 0; i < this.config.stageCount; i++) {
       stages.push({
@@ -421,6 +523,7 @@ export class BatchVsFlowLab {
       varianceCV: this.config.varianceCV,
       defectCorrelation: this.config.defectCorrelation,
       unitCost: this.config.unitCost,
+      scrapAtStage,
     }
   }
 
@@ -430,6 +533,11 @@ export class BatchVsFlowLab {
     this.flowPipeline.receiveUnit({ id, createdAt: t, completedAt: null, defective: false })
   }
 
+  // Inhomogeneous Poisson approximation: we sample the next arrival using the
+  // rate at `from` and don't thin against rate changes during the interval.
+  // For steady this is exact; for bursty/declining the time-averaged arrival
+  // rate is biased slightly toward whatever the rate happened to be at the
+  // last arrival. Accuracy is fine for visualization at the timescales here.
   private sampleArrival(from: number): number {
     let rate = this.demandRateAt(from)
     let u = Math.max(this.prng(), 1e-12)
@@ -439,8 +547,9 @@ export class BatchVsFlowLab {
   private demandRateAt(t: number): number {
     let r = Math.max(this.config.demandRate, 1e-9)
     if (this.config.demandProfile === 'bursty') {
+      // 20% of the cycle at 4× rate, 80% at 0.25× — time-averaged ≈ 1× r.
       let phase = (t % 60) / 60
-      return phase < 0.25 ? r * 3 : r * 0.4
+      return phase < 0.2 ? r * 4 : r * 0.25
     }
     if (this.config.demandProfile === 'declining') {
       return r * Math.max(0.1, 1 - t / 600)
