@@ -1,5 +1,3 @@
-import { mulberry32 } from '../../stats.ts'
-
 export type ProcessId =
   | 'cementation'
   | 'crucible'
@@ -233,23 +231,37 @@ export function processCost(processId: ProcessId, year: number): number {
   return p.midLifeCostUsdPerTon * teethingMultiplier(year - p.availableFrom, p.teethingYears)
 }
 
+export type OreMismatchLevel = 'none' | 'partial' | 'full'
+
+// 'mixed' ore (a blend of low- and high-P feedstocks) is partially compatible
+// with acid processes — fewer ruined heats than feeding pure phosphoric ore,
+// but still markedly worse than a clean low-P stream.
+const MISMATCH_DEFECT_MULTIPLIER: Record<OreMismatchLevel, number> = {
+  none: 1,
+  partial: 10,
+  full: 30,
+}
+
+export function oreMismatchLevel(processId: ProcessId, ore: OreType): OreMismatchLevel {
+  let p = getProcess(processId)
+  if (p.oreCompat.highP) return 'none'
+  if (ore === 'high-p') return 'full'
+  if (ore === 'mixed') return 'partial'
+  return 'none'
+}
+
 export function processDefectRate(
   processId: ProcessId,
   year: number,
-  oreMismatch: boolean,
+  mismatch: OreMismatchLevel,
 ): number {
   let p = getProcess(processId)
   let base = p.midLifeDefectRate * defectTeethingMultiplier(year - p.availableFrom, p.teethingYears)
-  if (oreMismatch) base = Math.min(0.95, base * 30)
-  return base
+  return Math.min(0.95, base * MISMATCH_DEFECT_MULTIPLIER[mismatch])
 }
 
 export function checkOreMismatch(processId: ProcessId, ore: OreType): boolean {
-  let p = getProcess(processId)
-  if (ore === 'high-p' || ore === 'mixed') {
-    if (!p.oreCompat.highP) return true
-  }
-  return false
+  return oreMismatchLevel(processId, ore) !== 'none'
 }
 
 const PRICE_CAPTURE = 0.7
@@ -286,8 +298,14 @@ export interface YearReport {
   cash: number
   events: string[]
   oreMismatch: boolean
+  oreMismatchLevel: OreMismatchLevel
   bankrupt: boolean
 }
+
+// Mills founded before this year are assumed to have raised capital and built
+// their starting plant before the simulation begins; mills founded after must
+// book the initial plant against amortized capex like any other switch.
+const GREENFIELD_THRESHOLD_YEAR = 1850
 
 interface CapexLot {
   yearsRemaining: number
@@ -306,10 +324,6 @@ export class SteelMill {
   bankrupt = false
   history: YearReport[] = []
   private capexLots: CapexLot[] = []
-  // RNG isn't sampled today, but is reserved for future stochastic variants
-  // (panic severity, defect bursts) and lets the deterministic-seed test pin
-  // the contract.
-  private rng: () => number
 
   constructor(config: MillConfig) {
     this.config = config
@@ -319,7 +333,18 @@ export class SteelMill {
     this.scale = config.scale
     this.posture = config.posture
     this.cash = SCALE_CAPACITY[config.scale] * STARTING_CASH_PER_TON_CAPACITY
-    this.rng = mulberry32(config.seed)
+    // Greenfield mills built mid-simulation pay capex on their starting plant;
+    // mills present at the 1850 baseline are assumed pre-built.
+    if (config.startYear > GREENFIELD_THRESHOLD_YEAR) this.bookCapexLot()
+  }
+
+  private bookCapexLot(): void {
+    let capacity = SCALE_CAPACITY[this.scale]
+    let total = capacity * CAPEX_PER_TON_CAPACITY * (this.posture === 'aggressive' ? 1.5 : 1)
+    this.capexLots.push({
+      yearsRemaining: CAPEX_AMORT_YEARS,
+      perYear: total / CAPEX_AMORT_YEARS,
+    })
   }
 
   setProcess(newProcess: ProcessId): void {
@@ -331,25 +356,21 @@ export class SteelMill {
     }
     if (newProcess === this.process) return
     this.process = newProcess
-    let capacity = SCALE_CAPACITY[this.scale]
-    let total = capacity * CAPEX_PER_TON_CAPACITY * (this.posture === 'aggressive' ? 1.5 : 1)
-    this.capexLots.push({
-      yearsRemaining: CAPEX_AMORT_YEARS,
-      perYear: total / CAPEX_AMORT_YEARS,
-    })
+    this.bookCapexLot()
   }
 
   tick(): YearReport {
     let year = this.year
     let events: string[] = []
-    let oreMismatch = checkOreMismatch(this.process, this.ore)
+    let mismatch = oreMismatchLevel(this.process, this.ore)
+    let oreMismatch = mismatch !== 'none'
 
     let capacity = SCALE_CAPACITY[this.scale]
     let throughput = getProcess(this.process).throughputFactor
     let production = this.bankrupt ? 0 : capacity * throughput
 
     let costPerTon = processCost(this.process, year) * SCALE_COST_MULTIPLIER[this.scale]
-    let defectRate = processDefectRate(this.process, year, oreMismatch)
+    let defectRate = processDefectRate(this.process, year, mismatch)
     let defects = production * defectRate
 
     let marketPrice = railPriceUsd(year)
@@ -400,6 +421,7 @@ export class SteelMill {
       cash: this.cash,
       events,
       oreMismatch,
+      oreMismatchLevel: mismatch,
       bankrupt: this.bankrupt,
     }
     this.history.push(report)

@@ -35,7 +35,7 @@ type Speed = (typeof SPEED_OPTIONS)[number]
 const ORE_OPTIONS: { id: OreType; label: string; hint: string }[] = [
   { id: 'low-p', label: 'Low-P', hint: 'Lake Superior · Bessemer-friendly' },
   { id: 'high-p', label: 'High-P', hint: 'Penn / European · needs basic process' },
-  { id: 'mixed', label: 'Mixed', hint: 'Treated as high-P for compatibility' },
+  { id: 'mixed', label: 'Mixed', hint: 'Blended feedstock · partial penalty on acid' },
 ]
 
 const SCALE_OPTIONS: { id: Scale; label: string }[] = [
@@ -49,20 +49,10 @@ const POSTURE_OPTIONS: { id: Posture; label: string; hint: string }[] = [
   { id: 'aggressive', label: 'Aggressive', hint: 'Carnegie posture · 1.5× capex per switch' },
 ]
 
-interface SimResult {
-  mill: SteelMill
-  history: YearReport[]
-}
-
-function runSim(
-  config: MillConfig,
-  switches: readonly ScheduledSwitch[],
-  untilYear: number,
-): SimResult {
+function runSimFull(config: MillConfig, switches: readonly ScheduledSwitch[]): YearReport[] {
   let mill = new SteelMill(config)
   let pending = [...switches].sort((a, b) => a.year - b.year)
-  let target = Math.min(untilYear, END_YEAR)
-  while (mill.year <= target) {
+  while (mill.year <= END_YEAR) {
     while (pending.length > 0 && pending[0].year === mill.year) {
       let s = pending.shift()!
       let spec = getProcess(s.process)
@@ -70,7 +60,13 @@ function runSim(
     }
     mill.tick()
   }
-  return { mill, history: mill.history }
+  return mill.history
+}
+
+function configKey(config: MillConfig, switches: readonly ScheduledSwitch[]): string {
+  let head = `${config.startYear}|${config.process}|${config.ore}|${config.scale}|${config.posture}|${config.seed}`
+  let tail = switches.map((s) => `${s.year}:${s.process}`).join(',')
+  return `${head}#${tail}`
 }
 
 interface CompetitorRun {
@@ -99,7 +95,15 @@ export const BessemerLab = clientEntry(
     let speed: Speed = 5
     let lastFrame: number | null = null
     let competitors = runCompetitors()
-    let showCompetitors = true
+    let simCache: { key: string; full: YearReport[] } | null = null
+
+    function simHistory(): YearReport[] {
+      let key = configKey(config, switches)
+      if (!simCache || simCache.key !== key) {
+        simCache = { key, full: runSimFull(config, switches) }
+      }
+      return simCache.full
+    }
 
     if (typeof requestAnimationFrame !== 'undefined') {
       let frameId: number | null = null
@@ -182,13 +186,15 @@ export const BessemerLab = clientEntry(
 
     return () => {
       let displayYear = Math.floor(targetYear)
-      let { mill, history } = runSim(config, switches, displayYear)
+      let fullHistory = simHistory()
+      let history = fullHistory.filter((h) => h.year <= displayYear)
       let lastReport = history[history.length - 1]
       let activeProcess = lastReport?.process ?? config.process
       let recentEvents = history
         .slice(-3)
         .flatMap((h) => h.events.map((e) => ({ year: h.year, event: e })))
       let oreMismatch = lastReport?.oreMismatch ?? false
+      let bankrupt = lastReport?.bankrupt ?? false
       let priceNow = railPriceUsd(displayYear)
       let demandNow = railDemandTons(displayYear)
 
@@ -206,7 +212,7 @@ export const BessemerLab = clientEntry(
                 <YearTicker
                   year={displayYear}
                   paused={paused}
-                  bankrupt={mill.bankrupt}
+                  bankrupt={bankrupt}
                   events={recentEvents}
                 />
                 <input
@@ -215,6 +221,7 @@ export const BessemerLab = clientEntry(
                   max={String(END_YEAR)}
                   step="1"
                   value={String(displayYear)}
+                  aria-label="Simulation year"
                   mix={[
                     yearSliderStyle,
                     on('input', (e) => setTargetYear(Number(e.currentTarget.value))),
@@ -223,22 +230,16 @@ export const BessemerLab = clientEntry(
               </Panel>
 
               <Panel label={`Fig. 5.2 — Mill · ${getProcess(activeProcess).name}`} padding={20}>
-                <MillDiagram process={activeProcess} bankrupt={mill.bankrupt} />
+                <MillDiagram process={activeProcess} bankrupt={bankrupt} />
                 {oreMismatch && <OreWarning process={activeProcess} ore={config.ore} />}
               </Panel>
 
               <Panel label="Fig. 5.3 — Cost / ton vs. market price" padding={16}>
-                <PriceCostChart
-                  history={history}
-                  competitors={showCompetitors ? competitors : []}
-                />
+                <PriceCostChart history={history} competitors={competitors} />
               </Panel>
 
               <Panel label="Fig. 5.4 — Cumulative profit ($)" padding={16}>
-                <ProfitChart
-                  history={history}
-                  competitors={showCompetitors ? competitors : []}
-                />
+                <ProfitChart history={history} competitors={competitors} />
               </Panel>
 
               <div mix={metricsGridStyle}>
@@ -607,7 +608,8 @@ function PriceCostChart(
             </span>
           )}
         </div>
-        <svg viewBox={`0 0 ${width} ${height}`} mix={chartSvgStyle}>
+        <svg viewBox={`0 0 ${width} ${height}`} mix={chartSvgStyle} role="img" aria-label="Cost per ton vs. market price over time">
+          <title>Cost per ton vs. market price, {START_YEAR}–{END_YEAR}</title>
           {[0, 0.25, 0.5, 0.75, 1].map((f, i) => (
             <line
               key={`gl-${i}`}
@@ -686,7 +688,8 @@ function ProfitChart(
           ))}
           <span mix={chartAxisLabelStyle}>$M nominal</span>
         </div>
-        <svg viewBox={`0 0 ${width} ${height}`} mix={chartSvgStyle}>
+        <svg viewBox={`0 0 ${width} ${height}`} mix={chartSvgStyle} role="img" aria-label="Cumulative profit vs. competitor strategies">
+          <title>Cumulative profit, {START_YEAR}–{END_YEAR}</title>
           <line
             x1={pad}
             y1={yScale(0)}
@@ -814,6 +817,7 @@ function SpeedButton(handle: Handle<{ speed: number; active: boolean; onClick: (
     return (
       <button
         type="button"
+        aria-pressed={active ? 'true' : 'false'}
         mix={[active ? speedButtonActiveStyle : speedButtonStyle, on('click', onClick)]}
       >
         {speed}y/s
@@ -830,6 +834,7 @@ function ProfileButton(
     return (
       <button
         type="button"
+        aria-pressed={active ? 'true' : 'false'}
         mix={[active ? profileButtonActiveStyle : profileButtonStyle, on('click', onClick)]}
       >
         <span mix={profileLabelStyle}>{label}</span>
