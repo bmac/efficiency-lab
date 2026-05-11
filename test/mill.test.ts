@@ -7,7 +7,9 @@ import {
   availableProcesses,
   checkOreMismatch,
   getProcess,
+  oreMismatchLevel,
   processCost,
+  processDefectRate,
   railDemandTons,
   railPriceUsd,
   type MillConfig,
@@ -97,6 +99,32 @@ describe('checkOreMismatch', () => {
 
   it('flags acid open hearth on high-P ore', () => {
     assert.equal(checkOreMismatch('open-hearth', 'high-p'), true)
+  })
+})
+
+describe('oreMismatchLevel', () => {
+  it('reports full mismatch for acid processes on high-P ore', () => {
+    assert.equal(oreMismatchLevel('bessemer-acid', 'high-p'), 'full')
+    assert.equal(oreMismatchLevel('open-hearth', 'high-p'), 'full')
+  })
+
+  it('reports partial mismatch for acid processes on mixed ore', () => {
+    assert.equal(oreMismatchLevel('bessemer-acid', 'mixed'), 'partial')
+  })
+
+  it('reports no mismatch for basic processes on any ore', () => {
+    assert.equal(oreMismatchLevel('bessemer-basic', 'high-p'), 'none')
+    assert.equal(oreMismatchLevel('bessemer-basic', 'mixed'), 'none')
+    assert.equal(oreMismatchLevel('basic-open-hearth', 'high-p'), 'none')
+  })
+
+  it('mixed-ore defects fall between low-P and pure high-P on the same process', () => {
+    let year = 1875
+    let clean = processDefectRate('bessemer-acid', year, 'none')
+    let partial = processDefectRate('bessemer-acid', year, 'partial')
+    let full = processDefectRate('bessemer-acid', year, 'full')
+    assert.ok(partial > clean, `partial=${partial} should exceed clean=${clean}`)
+    assert.ok(full > partial, `full=${full} should exceed partial=${partial}`)
   })
 })
 
@@ -209,6 +237,21 @@ describe('SteelMill', () => {
       b.production > s.production * 50,
       `carnegie ${b.production} should be >50× small ${s.production}`,
     )
+  })
+
+  it('greenfield mills founded after 1850 book initial capex', () => {
+    let greenfield = makeMill({ process: 'bessemer-acid', startYear: 1880, scale: 'carnegie' })
+    let r = greenfield.tick()
+    assert.ok(
+      r.capexAmortized > 0,
+      `greenfield mill should amortize starting capex, got ${r.capexAmortized}`,
+    )
+  })
+
+  it('mills founded at the 1850 baseline do not book initial capex', () => {
+    let baseline = makeMill()
+    let r = baseline.tick()
+    assert.equal(r.capexAmortized, 0)
   })
 
   it('1873 panic year fires as an event', () => {
