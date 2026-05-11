@@ -7,4 +7,5 @@ export const routes = route({
   shewhart: '/shewhart',
   pinFactory: '/pin-factory',
   batchVsFlow: '/batch-vs-flow',
+  bessemer: '/bessemer',
 })
