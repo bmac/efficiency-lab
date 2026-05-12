@@ -62,6 +62,17 @@ interface CompetitorRun {
   history: readonly YearReport[]
 }
 
+type PendingDecision =
+  | { kind: 'unlock'; year: number; processId: ProcessId; deferred?: boolean }
+  | { kind: 'panic'; year: number }
+  | { kind: 'mismatch'; year: number; processId: ProcessId }
+  | { kind: 'bankrupt'; year: number }
+
+interface DeferredCheckIn {
+  year: number
+  processId: ProcessId
+}
+
 function runCompetitors(): CompetitorRun[] {
   return COMPETITORS.map((s) => ({ strategy: s, history: simulateCompetitor(s, END_YEAR) }))
 }
@@ -85,7 +96,8 @@ export const BessemerLab = clientEntry(
     let competitors = runCompetitors()
     let simCache: { key: string; full: YearReport[] } | null = null
     let lastAutoPauseYear = START_YEAR - 1
-    let autoPauseReason: string | null = null
+    let pendingDecision: PendingDecision | null = null
+    let deferred: DeferredCheckIn[] = []
 
     function simHistory(): YearReport[] {
       let key = configKey(config, switches)
@@ -109,10 +121,10 @@ export const BessemerLab = clientEntry(
           let nextFloor = Math.floor(next)
           if (nextFloor !== prevFloor) {
             targetYear = next
-            let reason = checkAutoPause(prevFloor, nextFloor)
-            if (reason && nextFloor !== lastAutoPauseYear) {
+            let decision = checkAutoPause(prevFloor, nextFloor)
+            if (decision && nextFloor !== lastAutoPauseYear) {
               paused = true
-              autoPauseReason = reason
+              pendingDecision = decision
               lastAutoPauseYear = nextFloor
               lastFrame = null
             }
@@ -131,24 +143,50 @@ export const BessemerLab = clientEntry(
       })
     }
 
-    function checkAutoPause(prevYear: number, newYear: number): string | null {
+    function checkAutoPause(prevYear: number, newYear: number): PendingDecision | null {
+      for (let d of deferred) {
+        if (d.year > prevYear && d.year <= newYear) {
+          let alreadyAdopted = switches.some(
+            (s) => s.process === d.processId && s.year <= newYear,
+          )
+          let activeNow = switches.length > 0 && switches[switches.length - 1].process === d.processId
+          if (!alreadyAdopted && !activeNow) {
+            return { kind: 'unlock', year: d.year, processId: d.processId, deferred: true }
+          }
+        }
+      }
       for (let p of PROCESSES) {
         if (p.availableFrom > prevYear && p.availableFrom <= newYear) {
-          return `${p.shortName} unlocked in ${p.availableFrom}`
+          return { kind: 'unlock', year: p.availableFrom, processId: p.id }
         }
       }
       let full = simHistory()
       for (let y = prevYear + 1; y <= newYear; y++) {
         let rep = full.find((h) => h.year === y)
         if (!rep) continue
-        if (rep.events.includes('bankrupt')) return `Mill bankrupt in ${y}`
-        if (rep.events.includes('panic-1873')) return `Panic of 1873 · cash haircut`
+        if (rep.events.includes('bankrupt')) return { kind: 'bankrupt', year: y }
+        if (rep.events.includes('panic-1873')) return { kind: 'panic', year: y }
         let prev = full.find((h) => h.year === y - 1)
         if (rep.oreMismatch && !(prev?.oreMismatch ?? false)) {
-          return `Ore mismatch · defects spiking in ${y}`
+          return { kind: 'mismatch', year: y, processId: rep.process }
         }
       }
       return null
+    }
+
+    function decisionLabel(d: PendingDecision): string {
+      switch (d.kind) {
+        case 'unlock':
+          return d.deferred
+            ? `Revisit · ${getProcess(d.processId).shortName} (deferred)`
+            : `${getProcess(d.processId).shortName} unlocked · ${d.year}`
+        case 'panic':
+          return `Panic of 1873 · cash haircut`
+        case 'mismatch':
+          return `Ore mismatch · ${getProcess(d.processId).shortName} defects spiking`
+        case 'bankrupt':
+          return `Mill bankrupt · ${d.year}`
+      }
     }
 
     function reset() {
@@ -157,14 +195,15 @@ export const BessemerLab = clientEntry(
       paused = false
       lastFrame = null
       lastAutoPauseYear = START_YEAR - 1
-      autoPauseReason = null
+      pendingDecision = null
+      deferred = []
       handle.update()
     }
 
     function togglePause() {
       paused = !paused
       lastFrame = null
-      if (!paused) autoPauseReason = null
+      if (!paused) pendingDecision = null
       handle.update()
     }
 
@@ -182,12 +221,43 @@ export const BessemerLab = clientEntry(
       handle.update()
     }
 
+    function adoptFromModal(id: ProcessId) {
+      adoptProcess(id)
+      pendingDecision = null
+      paused = false
+      lastFrame = null
+      handle.update()
+    }
+
+    function deferDecision(years: number) {
+      let current = pendingDecision
+      if (current?.kind === 'unlock') {
+        let from = Math.floor(targetYear)
+        let target = Math.min(END_YEAR, from + years)
+        deferred = [
+          ...deferred.filter((d) => d.processId !== current.processId),
+          { year: target, processId: current.processId },
+        ]
+      }
+      pendingDecision = null
+      paused = false
+      lastFrame = null
+      handle.update()
+    }
+
+    function dismissDecision() {
+      pendingDecision = null
+      paused = false
+      lastFrame = null
+      handle.update()
+    }
+
     function setTargetYear(y: number) {
       targetYear = Math.max(START_YEAR, Math.min(END_YEAR, y))
       switches = switches.filter((s) => s.year <= Math.floor(targetYear))
       lastFrame = null
       lastAutoPauseYear = Math.floor(targetYear)
-      autoPauseReason = null
+      pendingDecision = null
       handle.update()
     }
 
@@ -210,8 +280,25 @@ export const BessemerLab = clientEntry(
       let adoptionCapex = adoptionCapexUsd(config.scale, config.posture)
       let gameOver = displayYear >= END_YEAR
 
+      let modalDecision = paused && pendingDecision ? pendingDecision : null
+      let scaleMultiplierNow = SCALE_COST_MULTIPLIER[config.scale]
+
       return (
         <article mix={pageStyle}>
+          {modalDecision && (
+            <EventModal
+              decision={modalDecision}
+              currentProcess={activeProcess}
+              costNow={costNow}
+              marketPrice={priceNow}
+              pricePerTon={pricePerTonNow}
+              capex={adoptionCapex}
+              scaleMultiplier={scaleMultiplierNow}
+              onAdopt={adoptFromModal}
+              onDefer={() => deferDecision(5)}
+              onDismiss={dismissDecision}
+            />
+          )}
           <SheetHeader
             fig="Fig. 5.0 — Adoption under uncertainty"
             title="Bessemer Cost Collapse"
@@ -226,7 +313,7 @@ export const BessemerLab = clientEntry(
                   paused={paused}
                   bankrupt={bankrupt}
                   events={recentEvents}
-                  reason={autoPauseReason}
+                  reason={pendingDecision ? decisionLabel(pendingDecision) : null}
                 />
                 <input
                   type="range"
@@ -308,7 +395,7 @@ export const BessemerLab = clientEntry(
 
               <Panel label="Process panel" padding={16}>
                 <div mix={processGridStyle}>
-                  {PROCESSES.map((p) => (
+                  {PROCESSES.filter((p) => p.availableFrom <= displayYear).map((p) => (
                     <ProcessCard
                       key={`p-${p.id}`}
                       process={p}
@@ -316,11 +403,12 @@ export const BessemerLab = clientEntry(
                       active={activeProcess === p.id}
                       costNow={costNow}
                       capex={adoptionCapex}
-                      scaleMultiplier={SCALE_COST_MULTIPLIER[config.scale]}
+                      scaleMultiplier={scaleMultiplierNow}
                       onAdopt={() => adoptProcess(p.id)}
                     />
                   ))}
                 </div>
+                <ComingUp year={displayYear} />
               </Panel>
             </aside>
           </div>
@@ -452,6 +540,236 @@ function DecisionStat(handle: Handle<{ label: string; value: string; accent?: bo
         <div mix={decisionStatLabelStyle}>{label}</div>
         <div mix={decisionStatValueStyle}>{value}</div>
       </div>
+    )
+  }
+}
+
+function EventModal(
+  handle: Handle<{
+    decision: PendingDecision
+    currentProcess: ProcessId
+    costNow: number
+    marketPrice: number
+    pricePerTon: number
+    capex: number
+    scaleMultiplier: number
+    onAdopt: (id: ProcessId) => void
+    onDefer: () => void
+    onDismiss: () => void
+  }>,
+) {
+  return () => {
+    let {
+      decision,
+      currentProcess,
+      costNow,
+      marketPrice,
+      pricePerTon,
+      capex,
+      scaleMultiplier,
+      onAdopt,
+      onDefer,
+      onDismiss,
+    } = handle.props
+    return (
+      <div mix={modalBackdropStyle}>
+        <div mix={modalCardStyle} role="dialog" aria-modal="true">
+          <div mix={modalTagStyle}>
+            {decision.kind === 'unlock'
+              ? decision.deferred
+                ? 'Deferred check-in'
+                : 'New process unlocked'
+              : decision.kind === 'panic'
+                ? 'Macro event'
+                : decision.kind === 'mismatch'
+                  ? 'Process failure'
+                  : 'End of the line'}
+          </div>
+          {decision.kind === 'unlock' && (
+            <UnlockBody
+              decision={decision}
+              currentProcess={currentProcess}
+              costNow={costNow}
+              capex={capex}
+              scaleMultiplier={scaleMultiplier}
+            />
+          )}
+          {decision.kind === 'panic' && (
+            <PanicBody year={decision.year} costNow={costNow} marketPrice={marketPrice} />
+          )}
+          {decision.kind === 'mismatch' && (
+            <MismatchBody decision={decision} currentProcess={currentProcess} />
+          )}
+          {decision.kind === 'bankrupt' && <BankruptBody year={decision.year} />}
+
+          <div mix={modalActionsStyle}>
+            {decision.kind === 'unlock' && (
+              <>
+                <DraftingButton primary onClick={() => onAdopt(decision.processId)}>
+                  Adopt {getProcess(decision.processId).shortName} now
+                </DraftingButton>
+                <DraftingButton onClick={onDefer}>Defer 5 years</DraftingButton>
+                <DraftingButton onClick={onDismiss}>Stay on {getProcess(currentProcess).shortName}</DraftingButton>
+              </>
+            )}
+            {decision.kind === 'mismatch' && (
+              <>
+                <DraftingButton primary onClick={onDismiss}>
+                  Continue running
+                </DraftingButton>
+                <DraftingButton onClick={onDefer}>Revisit in 5 years</DraftingButton>
+              </>
+            )}
+            {decision.kind === 'panic' && (
+              <DraftingButton primary onClick={onDismiss}>
+                Acknowledge
+              </DraftingButton>
+            )}
+            {decision.kind === 'bankrupt' && (
+              <DraftingButton primary onClick={onDismiss}>
+                Watch the rest play out
+              </DraftingButton>
+            )}
+          </div>
+
+          <div mix={modalFootnoteStyle}>
+            You capture <strong>${pricePerTon.toFixed(0)}/ton</strong> of the
+            ${marketPrice.toFixed(0)} market price right now · charter: regional mill (50k t/y),
+            conservative capex.
+          </div>
+        </div>
+      </div>
+    )
+  }
+}
+
+function UnlockBody(
+  handle: Handle<{
+    decision: { kind: 'unlock'; year: number; processId: ProcessId; deferred?: boolean }
+    currentProcess: ProcessId
+    costNow: number
+    capex: number
+    scaleMultiplier: number
+  }>,
+) {
+  return () => {
+    let { decision, currentProcess, costNow, capex, scaleMultiplier } = handle.props
+    let spec = getProcess(decision.processId)
+    let yearsSince = decision.year - spec.availableFrom
+    let teething = spec.teethingYears > 0 && yearsSince < spec.teethingYears
+    let teethingRemaining = teething ? spec.teethingYears - Math.max(0, yearsSince) : 0
+    let midCost = spec.midLifeCostUsdPerTon * scaleMultiplier
+    let initialCost = midCost * (teething ? 1.75 : 1)
+    let delta = midCost - costNow
+    return (
+      <>
+        <h2 mix={modalTitleStyle}>
+          {decision.year} — {spec.name}
+        </h2>
+        <p mix={modalBlurbStyle}>
+          {decision.deferred
+            ? `You deferred this decision five years ago. The clock has reached ${decision.year} and ${spec.shortName} is still on the table.`
+            : `${spec.shortName} just became commercially available. ${spec.description}`}
+        </p>
+        <div mix={modalStatsStyle}>
+          <DecisionStat label="Capex to adopt" value={fmtUsd(capex)} />
+          <DecisionStat
+            label="Online in"
+            value={teething ? `${teethingRemaining} yrs teething` : 'immediately'}
+          />
+          <DecisionStat
+            label="Mid-life cost/ton"
+            value={`$${midCost.toFixed(0)}`}
+            accent={delta < 0}
+          />
+          <DecisionStat label="Your cost now" value={`$${costNow.toFixed(0)}`} />
+        </div>
+        {teething && (
+          <p mix={modalWarnStyle}>
+            ⚠ First year ~${initialCost.toFixed(0)}/t · defect rate ~5× until teething settles.
+            Early adopters pay tuition; late adopters chase a moving curve.
+          </p>
+        )}
+        {!spec.oreCompat.highP && (
+          <p mix={modalBlurbStyle}>
+            Requires low-phosphorus ore (which you have). High-P ore will not work in this
+            process until Thomas-Gilchrist's basic lining arrives in 1879.
+          </p>
+        )}
+        <p mix={modalBlurbStyle}>
+          Compared to {getProcess(currentProcess).shortName} at ${costNow.toFixed(0)}/t,
+          this is{' '}
+          <strong>
+            {delta >= 0 ? '+' : ''}${delta.toFixed(0)}/t {delta < 0 ? 'cheaper' : 'more expensive'}
+          </strong>{' '}
+          at mid-life.
+        </p>
+      </>
+    )
+  }
+}
+
+function PanicBody(
+  handle: Handle<{ year: number; costNow: number; marketPrice: number }>,
+) {
+  return () => {
+    let { year, costNow, marketPrice } = handle.props
+    return (
+      <>
+        <h2 mix={modalTitleStyle}>{year} — Panic of 1873</h2>
+        <p mix={modalBlurbStyle}>
+          A continental credit panic just wiped 30% off your cash balance. Rail demand softens
+          for the rest of the decade and the price of steel rails enters its long collapse. You
+          are running at <strong>${costNow.toFixed(0)}/t</strong> against a market price of{' '}
+          <strong>${marketPrice.toFixed(0)}/t</strong>.
+        </p>
+      </>
+    )
+  }
+}
+
+function MismatchBody(
+  handle: Handle<{
+    decision: { kind: 'mismatch'; year: number; processId: ProcessId }
+    currentProcess: ProcessId
+  }>,
+) {
+  return () => {
+    let { decision, currentProcess } = handle.props
+    let spec = getProcess(decision.processId)
+    return (
+      <>
+        <h2 mix={modalTitleStyle}>
+          {decision.year} — {spec.shortName} rejecting your ore
+        </h2>
+        <p mix={modalBlurbStyle}>
+          {spec.shortName} is acid-lined and cannot tolerate phosphorus. Your defect rate
+          spiked roughly tenfold and the penalty bill is gutting margin. Historically, this is
+          exactly what killed Bessemer's first commercial run — until Thomas-Gilchrist's basic
+          lining solved it in 1879.
+        </p>
+        {currentProcess === decision.processId && (
+          <p mix={modalBlurbStyle}>
+            Waiting for the basic process to unlock is one strategy. Switching back to
+            something ore-tolerant is the other.
+          </p>
+        )}
+      </>
+    )
+  }
+}
+
+function BankruptBody(handle: Handle<{ year: number }>) {
+  return () => {
+    let { year } = handle.props
+    return (
+      <>
+        <h2 mix={modalTitleStyle}>{year} — Mill bankrupt</h2>
+        <p mix={modalBlurbStyle}>
+          Cash on hand went negative. Production has stopped and the ledger is frozen for the
+          rest of the run. Hit reset to try a different sequence.
+        </p>
+      </>
     )
   }
 }
@@ -878,6 +1196,27 @@ function ProcessCard(
   }
 }
 
+function ComingUp(handle: Handle<{ year: number }>) {
+  return () => {
+    let { year } = handle.props
+    let locked = PROCESSES.filter((p) => p.availableFrom > year)
+    if (locked.length === 0) return null
+    return (
+      <div mix={comingUpStyle}>
+        <div mix={comingUpHeaderStyle}>Coming up</div>
+        {locked.map((p) => (
+          <div key={`coming-${p.id}`} mix={comingUpRowStyle}>
+            <span mix={comingUpNameStyle}>{p.shortName}</span>
+            <span mix={comingUpYearStyle}>
+              {p.availableFrom} · {p.availableFrom - year}y
+            </span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+}
+
 function MetricColumn(
   handle: Handle<{
     title: string
@@ -1092,7 +1431,7 @@ function retroNarrative(
     case 'bessemer-pioneer':
       return `Bessemer Pioneer adopted the converter in 1857, the year after it was patented — one of the first commercial Bessemer mills in the world. The early heats failed badly (the original "Bessemer" steel was famously brittle for the first half-decade), but riding the descent of the cost curve from 1865 onward paid the tuition back several times over. ${comparison} ${verdict}`
     case 'carnegie-style':
-      return `Carnegie-style entered late (1872) and big — a regional Bessemer plant from day one, then a Basic OH rebuild in 1885. Aggressive capex (1.5× a conservative mill) and Carnegie-scale capacity (10× a regional mill) meant a per-ton cost roughly half of yours. ${comparison} ${verdict} The historical Carnegie did exactly this and became the largest steel producer on earth.`
+      return `Carnegie-style entered late (1872) and big — a Carnegie-scale Bessemer plant from day one, ten times your capacity, then a Basic OH rebuild in 1885. Aggressive capex (1.5× a conservative mill) and that scale advantage drove per-ton costs to roughly half of yours. ${comparison} ${verdict} Your charter was always a regional mill (50k t/y, conservative capex) — you couldn't have matched this play even with perfect foresight. The lesson here isn't "you should have moved sooner," it's that some moats require the right ambition from the start. The historical Carnegie did exactly this and became the largest steel producer on earth.`
     default:
       return `${comparison} ${verdict}`
   }
@@ -1396,6 +1735,86 @@ const noteStyle = css({
   lineHeight: 1.55,
 })
 
+const modalBackdropStyle = css({
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(14,34,51,0.55)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: '24px',
+  zIndex: 100,
+  backdropFilter: 'blur(2px)',
+})
+
+const modalCardStyle = css({
+  background: T.paperWarm,
+  border: `2px solid ${T.ink}`,
+  boxShadow: '6px 6px 0 rgba(14,34,51,0.25)',
+  padding: '24px 24px 20px',
+  maxWidth: '560px',
+  width: '100%',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '14px',
+  fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
+  color: T.ink,
+})
+
+const modalTagStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.2em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+  color: T.accent,
+})
+
+const modalTitleStyle = css({
+  fontSize: '22px',
+  margin: 0,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  lineHeight: 1.15,
+})
+
+const modalBlurbStyle = css({
+  fontSize: '12px',
+  lineHeight: 1.55,
+  margin: 0,
+})
+
+const modalWarnStyle = css({
+  fontSize: '11px',
+  lineHeight: 1.5,
+  margin: 0,
+  border: `1px solid ${T.accent}`,
+  background: T.accentSoft,
+  padding: '8px 10px',
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+})
+
+const modalStatsStyle = css({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gap: '8px',
+  '@media (max-width: 540px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+})
+
+const modalActionsStyle = css({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '8px',
+  marginTop: '4px',
+})
+
+const modalFootnoteStyle = css({
+  fontSize: '10px',
+  lineHeight: 1.5,
+  opacity: 0.65,
+  marginTop: '2px',
+})
+
 const tickerReasonStyle = css({
   marginTop: '4px',
   border: `1px dashed ${T.accent}`,
@@ -1486,6 +1905,44 @@ const processCardDeltaGoodStyle = css({
 const processCardDeltaBadStyle = css({
   opacity: 0.7,
   fontWeight: 700,
+})
+
+const comingUpStyle = css({
+  marginTop: '8px',
+  borderTop: `1px dashed ${T.rule}`,
+  paddingTop: '8px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '3px',
+})
+
+const comingUpHeaderStyle = css({
+  fontSize: '9px',
+  letterSpacing: '0.16em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+  opacity: 0.6,
+  marginBottom: '2px',
+})
+
+const comingUpRowStyle = css({
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  fontSize: '10px',
+  opacity: 0.7,
+})
+
+const comingUpNameStyle = css({
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+})
+
+const comingUpYearStyle = css({
+  fontSize: '9px',
+  letterSpacing: '0.12em',
+  opacity: 0.85,
 })
 
 const processCardWarnStyle = css({
