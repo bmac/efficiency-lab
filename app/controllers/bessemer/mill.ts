@@ -267,9 +267,15 @@ export function checkOreMismatch(processId: ProcessId, ore: OreType): boolean {
 const PRICE_CAPTURE = 0.7
 const PENALTY_PER_DEFECT_TON = 60
 const STARTING_CASH_PER_TON_CAPACITY = 12
-const CAPEX_PER_TON_CAPACITY = 30
-const CAPEX_AMORT_YEARS = 10
+export const CAPEX_PER_TON_CAPACITY = 30
+export const CAPEX_AMORT_YEARS = 10
 const PANIC_CASH_HAIRCUT = 0.7
+
+export function adoptionCapexUsd(scale: Scale, posture: Posture): number {
+  return (
+    SCALE_CAPACITY[scale] * CAPEX_PER_TON_CAPACITY * (posture === 'aggressive' ? 1.5 : 1)
+  )
+}
 
 export interface MillConfig {
   startYear: number

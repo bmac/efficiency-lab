@@ -1,11 +1,12 @@
 import { clientEntry, css, on, type Handle, type SerializableProps } from 'remix/ui'
 
-import { DraftingButton, FieldSlider, Panel, Readout, SheetHeader, T } from '../../ui/shell.tsx'
+import { DraftingButton, Panel, Readout, SheetHeader, T } from '../../ui/shell.tsx'
 import {
   COMPETITORS,
   PROCESSES,
-  SCALE_CAPACITY,
+  SCALE_COST_MULTIPLIER,
   SteelMill,
+  adoptionCapexUsd,
   getProcess,
   railDemandTons,
   railPriceUsd,
@@ -29,25 +30,12 @@ interface ScheduledSwitch {
 const START_YEAR = 1850
 const END_YEAR = 1910
 
-const SPEED_OPTIONS = [1, 2, 5, 15] as const
+const SPEED_OPTIONS = [1, 2, 5] as const
 type Speed = (typeof SPEED_OPTIONS)[number]
 
-const ORE_OPTIONS: { id: OreType; label: string; hint: string }[] = [
-  { id: 'low-p', label: 'Low-P', hint: 'Lake Superior · Bessemer-friendly' },
-  { id: 'high-p', label: 'High-P', hint: 'Penn / European · needs basic process' },
-  { id: 'mixed', label: 'Mixed', hint: 'Blended feedstock · partial penalty on acid' },
-]
-
-const SCALE_OPTIONS: { id: Scale; label: string }[] = [
-  { id: 'small', label: 'Small · 5k t/y' },
-  { id: 'regional', label: 'Regional · 50k t/y' },
-  { id: 'carnegie', label: 'Carnegie · 500k t/y' },
-]
-
-const POSTURE_OPTIONS: { id: Posture; label: string; hint: string }[] = [
-  { id: 'conservative', label: 'Conservative', hint: 'Limited capex; slow to scrap & rebuild' },
-  { id: 'aggressive', label: 'Aggressive', hint: 'Carnegie posture · 1.5× capex per switch' },
-]
+const DEFAULT_ORE: OreType = 'low-p'
+const DEFAULT_SCALE: Scale = 'regional'
+const DEFAULT_POSTURE: Posture = 'conservative'
 
 function runSimFull(config: MillConfig, switches: readonly ScheduledSwitch[]): YearReport[] {
   let mill = new SteelMill(config)
@@ -84,18 +72,20 @@ export const BessemerLab = clientEntry(
     let config: MillConfig = {
       startYear: START_YEAR,
       process: 'puddling',
-      ore: 'low-p',
-      scale: 'regional',
-      posture: 'conservative',
+      ore: DEFAULT_ORE,
+      scale: DEFAULT_SCALE,
+      posture: DEFAULT_POSTURE,
       seed: 1,
     }
     let switches: ScheduledSwitch[] = []
     let targetYear = START_YEAR
     let paused = false
-    let speed: Speed = 5
+    let speed: Speed = 1
     let lastFrame: number | null = null
     let competitors = runCompetitors()
     let simCache: { key: string; full: YearReport[] } | null = null
+    let lastAutoPauseYear = START_YEAR - 1
+    let autoPauseReason: string | null = null
 
     function simHistory(): YearReport[] {
       let key = configKey(config, switches)
@@ -114,9 +104,18 @@ export const BessemerLab = clientEntry(
         } else if (lastFrame != null) {
           let dt = Math.min(now - lastFrame, 200) / 1000
           lastFrame = now
+          let prevFloor = Math.floor(targetYear)
           let next = Math.min(END_YEAR, targetYear + dt * speed)
-          if (Math.floor(next) !== Math.floor(targetYear)) {
+          let nextFloor = Math.floor(next)
+          if (nextFloor !== prevFloor) {
             targetYear = next
+            let reason = checkAutoPause(prevFloor, nextFloor)
+            if (reason && nextFloor !== lastAutoPauseYear) {
+              paused = true
+              autoPauseReason = reason
+              lastAutoPauseYear = nextFloor
+              lastFrame = null
+            }
             handle.update()
           } else {
             targetYear = next
@@ -132,17 +131,40 @@ export const BessemerLab = clientEntry(
       })
     }
 
+    function checkAutoPause(prevYear: number, newYear: number): string | null {
+      for (let p of PROCESSES) {
+        if (p.availableFrom > prevYear && p.availableFrom <= newYear) {
+          return `${p.shortName} unlocked in ${p.availableFrom}`
+        }
+      }
+      let full = simHistory()
+      for (let y = prevYear + 1; y <= newYear; y++) {
+        let rep = full.find((h) => h.year === y)
+        if (!rep) continue
+        if (rep.events.includes('bankrupt')) return `Mill bankrupt in ${y}`
+        if (rep.events.includes('panic-1873')) return `Panic of 1873 · cash haircut`
+        let prev = full.find((h) => h.year === y - 1)
+        if (rep.oreMismatch && !(prev?.oreMismatch ?? false)) {
+          return `Ore mismatch · defects spiking in ${y}`
+        }
+      }
+      return null
+    }
+
     function reset() {
       switches = []
       targetYear = START_YEAR
       paused = false
       lastFrame = null
+      lastAutoPauseYear = START_YEAR - 1
+      autoPauseReason = null
       handle.update()
     }
 
     function togglePause() {
       paused = !paused
       lastFrame = null
+      if (!paused) autoPauseReason = null
       handle.update()
     }
 
@@ -151,26 +173,10 @@ export const BessemerLab = clientEntry(
       handle.update()
     }
 
-    function setOre(ore: OreType) {
-      config = { ...config, ore }
-      handle.update()
-    }
-
-    function setScale(scale: Scale) {
-      config = { ...config, scale }
-      handle.update()
-    }
-
-    function setPosture(posture: Posture) {
-      config = { ...config, posture }
-      handle.update()
-    }
-
     function adoptProcess(id: ProcessId) {
       let year = Math.max(START_YEAR, Math.ceil(targetYear))
       let spec = getProcess(id)
       if (spec.availableFrom > year) return
-      // Drop any prior switch scheduled at or after the current year, then add.
       switches = switches.filter((s) => s.year < year)
       switches.push({ year, process: id })
       handle.update()
@@ -178,9 +184,10 @@ export const BessemerLab = clientEntry(
 
     function setTargetYear(y: number) {
       targetYear = Math.max(START_YEAR, Math.min(END_YEAR, y))
-      // Discard scheduled switches that the player has rewound past.
       switches = switches.filter((s) => s.year <= Math.floor(targetYear))
       lastFrame = null
+      lastAutoPauseYear = Math.floor(targetYear)
+      autoPauseReason = null
       handle.update()
     }
 
@@ -197,6 +204,11 @@ export const BessemerLab = clientEntry(
       let bankrupt = lastReport?.bankrupt ?? false
       let priceNow = railPriceUsd(displayYear)
       let demandNow = railDemandTons(displayYear)
+      let costNow = lastReport?.costPerTon ?? 0
+      let pricePerTonNow = lastReport?.pricePerTon ?? priceNow * 0.7
+      let marginNow = pricePerTonNow - costNow
+      let adoptionCapex = adoptionCapexUsd(config.scale, config.posture)
+      let gameOver = displayYear >= END_YEAR
 
       return (
         <article mix={pageStyle}>
@@ -214,6 +226,7 @@ export const BessemerLab = clientEntry(
                   paused={paused}
                   bankrupt={bankrupt}
                   events={recentEvents}
+                  reason={autoPauseReason}
                 />
                 <input
                   type="range"
@@ -228,6 +241,20 @@ export const BessemerLab = clientEntry(
                   ]}
                 />
               </Panel>
+
+              {paused && !gameOver && (
+                <Panel label="Decision · pause snapshot" padding={16}>
+                  <DecisionSnapshot
+                    year={displayYear}
+                    activeProcess={activeProcess}
+                    costNow={costNow}
+                    pricePerTonNow={pricePerTonNow}
+                    marketPriceNow={priceNow}
+                    marginNow={marginNow}
+                    capex={adoptionCapex}
+                  />
+                </Panel>
+              )}
 
               <Panel label={`Fig. 5.2 — Mill · ${getProcess(activeProcess).name}`} padding={20}>
                 <MillDiagram process={activeProcess} bankrupt={bankrupt} />
@@ -268,6 +295,11 @@ export const BessemerLab = clientEntry(
                 </div>
                 <Readout k="Year" v={String(displayYear)} accent />
                 <Readout k="Market price" v={`$${priceNow.toFixed(0)}/ton`} />
+                <Readout k="Your cost/ton" v={`$${costNow.toFixed(0)}/ton`} />
+                <Readout
+                  k="Margin/ton"
+                  v={`${marginNow >= 0 ? '' : '−'}$${Math.abs(marginNow).toFixed(0)}`}
+                />
                 <Readout
                   k="Industry demand"
                   v={`${(demandNow / 1000).toFixed(0)}k tons`}
@@ -282,66 +314,35 @@ export const BessemerLab = clientEntry(
                       process={p}
                       year={displayYear}
                       active={activeProcess === p.id}
+                      costNow={costNow}
+                      capex={adoptionCapex}
+                      scaleMultiplier={SCALE_COST_MULTIPLIER[config.scale]}
                       onAdopt={() => adoptProcess(p.id)}
                     />
                   ))}
                 </div>
               </Panel>
-
-              <Panel label="Ore source" padding={16}>
-                <div mix={profileGroupStyle}>
-                  {ORE_OPTIONS.map((opt) => (
-                    <ProfileButton
-                      key={`ore-${opt.id}`}
-                      label={opt.label}
-                      hint={opt.hint}
-                      active={config.ore === opt.id}
-                      onClick={() => setOre(opt.id)}
-                    />
-                  ))}
-                </div>
-              </Panel>
-
-              <Panel label="Scale" padding={16}>
-                <div mix={profileGroupStyle}>
-                  {SCALE_OPTIONS.map((opt) => (
-                    <ProfileButton
-                      key={`scale-${opt.id}`}
-                      label={opt.label}
-                      hint={`Capacity ${SCALE_CAPACITY[opt.id].toLocaleString()} tons`}
-                      active={config.scale === opt.id}
-                      onClick={() => setScale(opt.id)}
-                    />
-                  ))}
-                </div>
-              </Panel>
-
-              <Panel label="Capital posture" padding={16}>
-                <div mix={profileGroupStyle}>
-                  {POSTURE_OPTIONS.map((opt) => (
-                    <ProfileButton
-                      key={`pos-${opt.id}`}
-                      label={opt.label}
-                      hint={opt.hint}
-                      active={config.posture === opt.id}
-                      onClick={() => setPosture(opt.id)}
-                    />
-                  ))}
-                </div>
-              </Panel>
-
-              <Panel label="Drafting note" padding={16}>
-                <div mix={noteStyle}>
-                  Steel rails cost ~$170/ton in 1867; ~$32/ton in 1898. The lab plots
-                  market price (exogenous) against your cost/ton (depends on process and
-                  years since invention). The gap is your margin per ton. A mill stuck on
-                  puddling will see that gap close, then invert. The ghost competitors —
-                  Crucible Co., Bessemer Pioneer, Carnegie — run their own preset
-                  strategies; their cumulative profit lines are the bar to clear.
-                </div>
-              </Panel>
             </aside>
           </div>
+
+          <Panel label="Drafting note" padding={16}>
+            <div mix={noteStyle}>
+              Steel rails cost ~$170/ton in 1867; ~$32/ton in 1898. The lab plots
+              market price (exogenous) against your cost/ton (depends on process and
+              years since invention). The gap is your margin per ton. A mill stuck on
+              puddling will see that gap close, then invert. The ghost competitors —
+              Crucible Co., Bessemer Pioneer, Carnegie — run their own preset
+              strategies; their cumulative profit lines are the bar to clear.
+            </div>
+          </Panel>
+
+          {gameOver && (
+            <Retrospective
+              playerHistory={fullHistory}
+              playerSwitches={switches}
+              competitors={competitors}
+            />
+          )}
         </article>
       )
     }
@@ -358,10 +359,11 @@ function YearTicker(
     paused: boolean
     bankrupt: boolean
     events: readonly { year: number; event: string }[]
+    reason: string | null
   }>,
 ) {
   return () => {
-    let { year, paused, bankrupt, events } = handle.props
+    let { year, paused, bankrupt, events, reason } = handle.props
     let label = bankrupt ? 'BANKRUPT' : paused ? 'PAUSED' : 'RUNNING'
     return (
       <div mix={tickerWrapStyle}>
@@ -372,6 +374,9 @@ function YearTicker(
             {START_YEAR} ⟶ {END_YEAR}
           </span>
         </div>
+        {paused && reason && (
+          <div mix={tickerReasonStyle}>↻ Auto-pause · {reason}</div>
+        )}
         <div mix={tickerEventsStyle}>
           {events.length === 0 ? (
             <span mix={tickerEventEmptyStyle}>—</span>
@@ -383,6 +388,69 @@ function YearTicker(
             ))
           )}
         </div>
+      </div>
+    )
+  }
+}
+
+function DecisionSnapshot(
+  handle: Handle<{
+    year: number
+    activeProcess: ProcessId
+    costNow: number
+    pricePerTonNow: number
+    marketPriceNow: number
+    marginNow: number
+    capex: number
+  }>,
+) {
+  return () => {
+    let { year, activeProcess, costNow, pricePerTonNow, marketPriceNow, marginNow, capex } =
+      handle.props
+    let active = getProcess(activeProcess)
+    let unlocked = PROCESSES.filter((p) => p.availableFrom <= year && p.id !== activeProcess)
+    return (
+      <div mix={decisionWrapStyle}>
+        <div mix={decisionHeadStyle}>
+          Year {year} · Running on <strong>{active.shortName}</strong>
+        </div>
+        <div mix={decisionGridStyle}>
+          <DecisionStat label="Your cost/ton" value={`$${costNow.toFixed(0)}`} />
+          <DecisionStat label="Market price" value={`$${marketPriceNow.toFixed(0)}`} />
+          <DecisionStat
+            label="Margin/ton"
+            value={`${marginNow >= 0 ? '' : '−'}$${Math.abs(marginNow).toFixed(0)}`}
+            accent={marginNow < 0}
+          />
+          <DecisionStat label="Capex to switch" value={fmtUsd(capex)} />
+        </div>
+        <div mix={decisionNoteStyle}>
+          Switching costs <strong>{fmtUsd(capex)}</strong> in capex (amortized over 10 years).
+          New processes start <strong>teething</strong> — 75% higher costs and ~5× defects
+          until they settle. Pick one of the cards below to schedule the switch at this year,
+          or hit ▶ Run to keep going.
+        </div>
+        {unlocked.length === 0 && (
+          <div mix={decisionNoteStyle}>
+            Nothing else is unlocked yet — let the clock advance.
+          </div>
+        )}
+        <div mix={decisionPriceNoteStyle}>
+          You capture <strong>${pricePerTonNow.toFixed(0)}/ton</strong> of the
+          ${marketPriceNow.toFixed(0)} market price (70% capture rate after dealer cuts).
+        </div>
+      </div>
+    )
+  }
+}
+
+function DecisionStat(handle: Handle<{ label: string; value: string; accent?: boolean }>) {
+  return () => {
+    let { label, value, accent } = handle.props
+    return (
+      <div mix={accent ? decisionStatAccentStyle : decisionStatStyle}>
+        <div mix={decisionStatLabelStyle}>{label}</div>
+        <div mix={decisionStatValueStyle}>{value}</div>
       </div>
     )
   }
@@ -729,13 +797,25 @@ function ProcessCard(
     process: (typeof PROCESSES)[number]
     year: number
     active: boolean
+    costNow: number
+    capex: number
+    scaleMultiplier: number
     onAdopt: () => void
   }>,
 ) {
   return () => {
-    let { process, year, active, onAdopt } = handle.props
+    let { process, year, active, costNow, capex, scaleMultiplier, onAdopt } = handle.props
     let unlocked = process.availableFrom <= year
-    let teething = unlocked && year - process.availableFrom < process.teethingYears
+    let yearsSince = year - process.availableFrom
+    let teethingRemaining =
+      unlocked && process.teethingYears > 0
+        ? Math.max(0, process.teethingYears - Math.max(0, yearsSince))
+        : 0
+    let teething = unlocked && yearsSince < process.teethingYears
+    let midCost = process.midLifeCostUsdPerTon * scaleMultiplier
+    let initialCost = midCost * (1 + 0.75 * (teething ? 1 : 0))
+    let delta = midCost - costNow
+    let yearsUntil = Math.max(0, process.availableFrom - year)
     return (
       <button
         type="button"
@@ -750,12 +830,49 @@ function ProcessCard(
         <div mix={processCardHeadStyle}>
           <span mix={processCardNameStyle}>{process.shortName}</span>
           <span mix={processCardYearStyle}>
-            {unlocked ? (active ? 'IN USE' : teething ? 'TEETHING' : 'READY') : process.availableFrom}
+            {unlocked
+              ? active
+                ? 'IN USE'
+                : teething
+                  ? `TEETHING ${teethingRemaining}y`
+                  : 'READY'
+              : `${process.availableFrom} · ${yearsUntil}y`}
           </span>
         </div>
-        <div mix={processCardStatsStyle}>
-          ${process.midLifeCostUsdPerTon}/t mid · {process.oreCompat.highP ? 'any ore' : 'low-P only'}
-        </div>
+        {active ? (
+          <div mix={processCardStatsStyle}>
+            Running at <strong>${costNow.toFixed(0)}/t</strong> ·{' '}
+            {process.oreCompat.highP ? 'any ore' : 'low-P only'}
+          </div>
+        ) : unlocked ? (
+          <div mix={processCardDetailsStyle}>
+            <div>
+              Adopt: <strong>{fmtUsd(capex)}</strong> capex
+            </div>
+            <div>
+              Online: <strong>{teething ? `${teethingRemaining} yrs teething` : 'immediately'}</strong>
+            </div>
+            <div>
+              At mid-life: <strong>${midCost.toFixed(0)}/t</strong>
+              {costNow > 0 && (
+                <span mix={delta < 0 ? processCardDeltaGoodStyle : processCardDeltaBadStyle}>
+                  {' '}
+                  ({delta >= 0 ? '+' : ''}${delta.toFixed(0)} vs now)
+                </span>
+              )}
+            </div>
+            {teething && (
+              <div mix={processCardWarnStyle}>
+                Starts at ~${initialCost.toFixed(0)}/t · defects ~5× until settled
+              </div>
+            )}
+          </div>
+        ) : (
+          <div mix={processCardStatsStyle}>
+            Locked · ${process.midLifeCostUsdPerTon}/t mid-life ·{' '}
+            {process.oreCompat.highP ? 'any ore' : 'low-P only'}
+          </div>
+        )}
       </button>
     )
   }
@@ -826,21 +943,158 @@ function SpeedButton(handle: Handle<{ speed: number; active: boolean; onClick: (
   }
 }
 
-function ProfileButton(
-  handle: Handle<{ label: string; hint: string; active: boolean; onClick: () => void }>,
+function Retrospective(
+  handle: Handle<{
+    playerHistory: readonly YearReport[]
+    playerSwitches: readonly ScheduledSwitch[]
+    competitors: readonly CompetitorRun[]
+  }>,
 ) {
   return () => {
-    let { label, hint, active, onClick } = handle.props
+    let { playerHistory, playerSwitches, competitors } = handle.props
+    let playerFinal = playerHistory[playerHistory.length - 1]
+    let playerProfit = playerFinal?.cumulativeProfit ?? 0
+    let playerBankrupt = playerFinal?.bankrupt ?? false
+
     return (
-      <button
-        type="button"
-        aria-pressed={active ? 'true' : 'false'}
-        mix={[active ? profileButtonActiveStyle : profileButtonStyle, on('click', onClick)]}
-      >
-        <span mix={profileLabelStyle}>{label}</span>
-        <span mix={profileHintStyle}>{hint}</span>
-      </button>
+      <section mix={retroWrapStyle}>
+        <div mix={retroHeaderStyle}>
+          <div mix={retroFigStyle}>Fig. 5.5 — Sixty years later</div>
+          <h2 mix={retroTitleStyle}>How it played out</h2>
+          <p mix={retroBlurbStyle}>
+            The clock has run to 1910. Here is your final ledger against the three ghost
+            mills — and what they actually did during the price collapse.
+          </p>
+        </div>
+
+        <div mix={retroPlayerStyle}>
+          <div mix={retroPlayerHeadStyle}>YOU</div>
+          <div mix={retroPlayerStatsStyle}>
+            <Readout
+              k="Cumulative profit"
+              v={fmtUsd(playerProfit)}
+              accent
+            />
+            <Readout k="Status" v={playerBankrupt ? 'BANKRUPT' : 'Operating'} />
+            <Readout
+              k="Switches made"
+              v={playerSwitches.length === 0 ? 'none' : String(playerSwitches.length)}
+            />
+          </div>
+          {playerSwitches.length > 0 && (
+            <div mix={retroTimelineStyle}>
+              {playerSwitches.map((s, i) => (
+                <span key={`ps-${i}`} mix={retroChipStyle}>
+                  {s.year} → {getProcess(s.process).shortName}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div mix={retroGridStyle}>
+          {competitors.map((c) => (
+            <CompetitorCard
+              key={`retro-${c.strategy.id}`}
+              strategy={c.strategy}
+              history={c.history}
+              playerProfit={playerProfit}
+              playerSwitches={playerSwitches}
+            />
+          ))}
+        </div>
+      </section>
     )
+  }
+}
+
+function CompetitorCard(
+  handle: Handle<{
+    strategy: CompetitorStrategy
+    history: readonly YearReport[]
+    playerProfit: number
+    playerSwitches: readonly ScheduledSwitch[]
+  }>,
+) {
+  return () => {
+    let { strategy, history, playerProfit, playerSwitches } = handle.props
+    let final = history[history.length - 1]
+    let theirProfit = final?.cumulativeProfit ?? 0
+    let delta = theirProfit - playerProfit
+    let won = delta > 0
+    let narrative = retroNarrative(strategy, playerSwitches, delta)
+    return (
+      <div mix={retroCardStyle}>
+        <div mix={retroCardHeadStyle}>
+          <span mix={retroCardNameStyle}>{strategy.name}</span>
+          <span mix={won ? retroCardBadgeWinStyle : retroCardBadgeLoseStyle}>
+            {won ? 'AHEAD' : 'BEHIND'}
+          </span>
+        </div>
+        <div mix={retroCardProfitStyle}>{fmtUsd(theirProfit)}</div>
+        <div mix={retroCardDeltaStyle}>
+          {delta >= 0 ? '+' : '−'}
+          {fmtUsd(Math.abs(delta))} vs you
+        </div>
+        <div mix={retroTimelineStyle}>
+          <span mix={retroChipStyle}>
+            {strategy.config.startYear} · founded on {getProcess(strategy.config.process).shortName}
+          </span>
+          {strategy.switches.map((s, i) => (
+            <span key={`sw-${i}`} mix={retroChipStyle}>
+              {s.year} → {getProcess(s.process).shortName}
+            </span>
+          ))}
+        </div>
+        <p mix={retroNarrativeStyle}>{narrative}</p>
+      </div>
+    )
+  }
+}
+
+function retroNarrative(
+  strategy: CompetitorStrategy,
+  playerSwitches: readonly ScheduledSwitch[],
+  delta: number,
+): string {
+  let firstSwitchYear = strategy.switches[0]?.year ?? null
+  let playerFirstYear = playerSwitches[0]?.year ?? null
+  let yearGap =
+    firstSwitchYear != null && playerFirstYear != null
+      ? firstSwitchYear - playerFirstYear
+      : null
+
+  let comparison = ''
+  if (yearGap != null) {
+    if (yearGap === 0) comparison = 'They moved the same year you did.'
+    else if (yearGap < 0)
+      comparison = `They committed ${Math.abs(yearGap)} years before you — and ate the teething tuition while you watched.`
+    else
+      comparison = `They waited ${yearGap} years longer than you did before committing.`
+  } else if (firstSwitchYear != null && playerFirstYear == null) {
+    comparison = `They moved off their starting process in ${firstSwitchYear}; you never did.`
+  } else if (firstSwitchYear == null && playerFirstYear != null) {
+    comparison = `They never switched; you did.`
+  } else {
+    comparison = `Neither of you switched.`
+  }
+
+  let verdict =
+    delta > 0
+      ? 'They ended ahead — the lab is unforgiving on this kind of inertia.'
+      : delta < 0
+        ? 'You ended ahead. The decision tree they followed cost them.'
+        : 'You ended in a dead heat.'
+
+  switch (strategy.id) {
+    case 'crucible-co':
+      return `Crucible Co. refused to chase rails — staying on small-batch crucible steel for the whole period. ${comparison} ${verdict}`
+    case 'bessemer-pioneer':
+      return `Bessemer Pioneer adopted the converter in 1857, the year after it was patented — one of the first commercial Bessemer mills in the world. The early heats failed badly (the original "Bessemer" steel was famously brittle for the first half-decade), but riding the descent of the cost curve from 1865 onward paid the tuition back several times over. ${comparison} ${verdict}`
+    case 'carnegie-style':
+      return `Carnegie-style entered late (1872) and big — a regional Bessemer plant from day one, then a Basic OH rebuild in 1885. Aggressive capex (1.5× a conservative mill) and Carnegie-scale capacity (10× a regional mill) meant a per-ton cost roughly half of yours. ${comparison} ${verdict} The historical Carnegie did exactly this and became the largest steel producer on earth.`
+    default:
+      return `${comparison} ${verdict}`
   }
 }
 
@@ -1040,7 +1294,7 @@ const twoButtonRowStyle = css({
 
 const speedGroupStyle = css({
   display: 'grid',
-  gridTemplateColumns: 'repeat(4, 1fr)',
+  gridTemplateColumns: 'repeat(3, 1fr)',
   marginTop: '8px',
   marginBottom: '12px',
   border: `1px solid ${T.ink}`,
@@ -1073,13 +1327,7 @@ const speedButtonActiveStyle = css({
   color: T.paper,
 })
 
-const profileGroupStyle = css({
-  display: 'flex',
-  flexDirection: 'column',
-  gap: '6px',
-})
-
-const profileBaseStyle = {
+const cardBaseStyle = {
   appearance: 'none',
   fontFamily: '"IBM Plex Mono", "JetBrains Mono", ui-monospace, monospace',
   cursor: 'pointer',
@@ -1092,31 +1340,6 @@ const profileBaseStyle = {
   transition: 'background-color 120ms ease',
 } as const
 
-const profileButtonStyle = css({
-  ...profileBaseStyle,
-  background: 'transparent',
-  color: T.ink,
-  '&:hover': { background: T.panelStrong },
-})
-
-const profileButtonActiveStyle = css({
-  ...profileBaseStyle,
-  background: T.ink,
-  color: T.paper,
-})
-
-const profileLabelStyle = css({
-  fontSize: '11px',
-  fontWeight: 700,
-  letterSpacing: '0.1em',
-  textTransform: 'uppercase',
-})
-
-const profileHintStyle = css({
-  fontSize: '10px',
-  opacity: 0.7,
-})
-
 const processGridStyle = css({
   display: 'flex',
   flexDirection: 'column',
@@ -1124,7 +1347,7 @@ const processGridStyle = css({
 })
 
 const processCardStyle = css({
-  ...profileBaseStyle,
+  ...cardBaseStyle,
   background: 'transparent',
   color: T.ink,
   '&:hover:not(:disabled)': { background: T.panelStrong },
@@ -1171,4 +1394,253 @@ const processCardStatsStyle = css({
 const noteStyle = css({
   fontSize: '11px',
   lineHeight: 1.55,
+})
+
+const tickerReasonStyle = css({
+  marginTop: '4px',
+  border: `1px dashed ${T.accent}`,
+  background: T.accentSoft,
+  padding: '6px 10px',
+  fontSize: '10px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+  color: T.accent,
+})
+
+const decisionWrapStyle = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '12px',
+})
+
+const decisionHeadStyle = css({
+  fontSize: '12px',
+  letterSpacing: '0.12em',
+  textTransform: 'uppercase',
+  opacity: 0.85,
+})
+
+const decisionGridStyle = css({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+  gap: '8px',
+  '@media (max-width: 720px)': { gridTemplateColumns: 'repeat(2, minmax(0, 1fr))' },
+})
+
+const decisionStatBase = {
+  border: `1px solid ${T.ink}`,
+  padding: '8px 10px',
+  background: T.panel,
+} as const
+
+const decisionStatStyle = css({ ...decisionStatBase })
+
+const decisionStatAccentStyle = css({
+  ...decisionStatBase,
+  borderColor: T.accent,
+  background: T.accentSoft,
+})
+
+const decisionStatLabelStyle = css({
+  fontSize: '9px',
+  letterSpacing: '0.14em',
+  textTransform: 'uppercase',
+  opacity: 0.7,
+  marginBottom: '4px',
+})
+
+const decisionStatValueStyle = css({
+  fontSize: '18px',
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+})
+
+const decisionNoteStyle = css({
+  fontSize: '11px',
+  lineHeight: 1.5,
+  opacity: 0.85,
+})
+
+const decisionPriceNoteStyle = css({
+  fontSize: '10px',
+  lineHeight: 1.5,
+  opacity: 0.65,
+  fontStyle: 'italic',
+})
+
+const processCardDetailsStyle = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '2px',
+  fontSize: '10px',
+  lineHeight: 1.45,
+  marginTop: '2px',
+})
+
+const processCardDeltaGoodStyle = css({
+  color: T.accent,
+  fontWeight: 700,
+})
+
+const processCardDeltaBadStyle = css({
+  opacity: 0.7,
+  fontWeight: 700,
+})
+
+const processCardWarnStyle = css({
+  marginTop: '3px',
+  fontSize: '9px',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: T.accent,
+  fontWeight: 700,
+})
+
+const retroWrapStyle = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '20px',
+  borderTop: `2px solid ${T.ink}`,
+  paddingTop: '24px',
+  marginTop: '8px',
+})
+
+const retroHeaderStyle = css({
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '6px',
+})
+
+const retroFigStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.18em',
+  textTransform: 'uppercase',
+  opacity: 0.65,
+  fontWeight: 700,
+})
+
+const retroTitleStyle = css({
+  fontSize: '24px',
+  margin: 0,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  color: T.accent,
+})
+
+const retroBlurbStyle = css({
+  fontSize: '12px',
+  lineHeight: 1.5,
+  margin: 0,
+  maxWidth: '60ch',
+  opacity: 0.85,
+})
+
+const retroPlayerStyle = css({
+  border: `2px solid ${T.accent}`,
+  padding: '16px',
+  background: T.accentSoft,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '10px',
+})
+
+const retroPlayerHeadStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.18em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+  color: T.accent,
+})
+
+const retroPlayerStatsStyle = css({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+  gap: '8px',
+  '@media (max-width: 720px)': { gridTemplateColumns: 'minmax(0, 1fr)' },
+})
+
+const retroGridStyle = css({
+  display: 'grid',
+  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+  gap: '14px',
+})
+
+const retroCardStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '14px',
+  background: T.panel,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: '8px',
+})
+
+const retroCardHeadStyle = css({
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  gap: '8px',
+})
+
+const retroCardNameStyle = css({
+  fontSize: '13px',
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+})
+
+const retroBadgeBase = {
+  fontSize: '9px',
+  letterSpacing: '0.14em',
+  fontWeight: 700,
+  padding: '3px 6px',
+  border: `1px solid ${T.ink}`,
+} as const
+
+const retroCardBadgeWinStyle = css({
+  ...retroBadgeBase,
+  borderColor: T.accent,
+  color: T.accent,
+})
+
+const retroCardBadgeLoseStyle = css({
+  ...retroBadgeBase,
+  opacity: 0.6,
+})
+
+const retroCardProfitStyle = css({
+  fontSize: '22px',
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+})
+
+const retroCardDeltaStyle = css({
+  fontSize: '10px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  opacity: 0.7,
+  fontWeight: 700,
+})
+
+const retroTimelineStyle = css({
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: '6px',
+})
+
+const retroChipStyle = css({
+  border: `1px solid ${T.ink}`,
+  padding: '3px 7px',
+  fontSize: '9px',
+  letterSpacing: '0.1em',
+  textTransform: 'uppercase',
+  fontWeight: 700,
+  background: T.panelStrong,
+})
+
+const retroNarrativeStyle = css({
+  fontSize: '11px',
+  lineHeight: 1.55,
+  margin: 0,
+  opacity: 0.9,
 })
