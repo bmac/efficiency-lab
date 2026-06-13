@@ -306,6 +306,41 @@ function CatalogSchema() {
         </svg>
       )
     }
+    if (kind === 'curve') {
+      // A descending learning curve — the line that refuses to flatten.
+      return (
+        <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
+          <line x1="8" y1="6" x2="8" y2="52" stroke={T.ink} stroke-width="0.4" opacity="0.6" />
+          <line x1="8" y1="52" x2="104" y2="52" stroke={T.ink} stroke-width="0.4" opacity="0.6" />
+          <path
+            d="M 10 10 C 34 12, 44 40, 104 48"
+            fill="none"
+            stroke={T.accent}
+            stroke-width="1.4"
+          />
+          {[
+            [10, 10],
+            [30, 20],
+            [54, 36],
+            [78, 44],
+            [104, 48],
+          ].map(([cx, cy], i) => (
+            <rect key={`p-${i}`} x={cx - 1.5} y={cy - 1.5} width="3" height="3" fill={T.accent} />
+          ))}
+          <text
+            x="58"
+            y="14"
+            text-anchor="middle"
+            font-size="6"
+            font-family="IBM Plex Mono"
+            fill={T.ink}
+            opacity="0.6"
+          >
+            COST ↓ / OUTPUT →
+          </text>
+        </svg>
+      )
+    }
     return (
       <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
         {[0, 1, 2, 3, 4].map((i) => (

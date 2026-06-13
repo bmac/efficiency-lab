@@ -7,6 +7,7 @@ import { home } from './controllers/home.tsx'
 import { pinFactory } from './controllers/pin-factory/controller.tsx'
 import { redBeads } from './controllers/red-beads/controller.tsx'
 import { shewhart } from './controllers/shewhart/controller.tsx'
+import { wrightsLaw } from './controllers/wrights-law/controller.tsx'
 import { routes } from './routes.ts'
 
 export const router = createRouter()
@@ -22,3 +23,4 @@ router.map(routes.shewhart, shewhart)
 router.map(routes.pinFactory, pinFactory)
 router.map(routes.batchVsFlow, batchVsFlow)
 router.map(routes.bessemer, bessemer)
+router.map(routes.wrightsLaw, wrightsLaw)

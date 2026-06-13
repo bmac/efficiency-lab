@@ -19,6 +19,7 @@ export const assets = createAssetServer({
     'app/controllers/pin-factory/**',
     'app/controllers/batch-vs-flow/**',
     'app/controllers/bessemer/**',
+    'app/controllers/wrights-law/**',
     'node_modules/**',
   ],
   deny: ['app/**/*.server.*'],

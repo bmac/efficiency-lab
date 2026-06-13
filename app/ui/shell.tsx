@@ -22,14 +22,21 @@ export const FONT_STACK =
   '"IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
 
 export interface LabMeta {
-  slug: 'index' | 'red-beads' | 'shewhart' | 'pin-factory' | 'batch-vs-flow' | 'bessemer'
+  slug:
+    | 'index'
+    | 'red-beads'
+    | 'shewhart'
+    | 'pin-factory'
+    | 'batch-vs-flow'
+    | 'bessemer'
+    | 'wrights-law'
   href: string
   id: string
   code: string
   short: string
   name: string
   sub: string
-  schema: 'jar' | 'chart' | 'line' | 'parallel' | 'converter'
+  schema: 'jar' | 'chart' | 'line' | 'parallel' | 'converter' | 'curve'
   fig: string
   source: string
   est: string
@@ -100,6 +107,19 @@ export const LABS: LabMeta[] = [
     fig: 'Fig. 5.0 — Adoption under uncertainty',
     source: 'Potter, Origins of Efficiency',
     est: '9 min',
+  },
+  {
+    slug: 'wrights-law',
+    href: '/wrights-law',
+    id: '06',
+    code: 'WL-006',
+    short: "Wright's Law",
+    name: "Wright's Law Lab",
+    sub: 'Every doubling of output cuts cost a fixed percent. Run the ramp; watch the line refuse to flatten.',
+    schema: 'curve',
+    fig: 'Fig. 6.0 — Learning curve',
+    source: 'Wright, 1936 · Potter',
+    est: '7 min',
   },
 ]
 
