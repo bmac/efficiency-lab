@@ -3,6 +3,7 @@ import { createRouter } from 'remix/fetch-router'
 import { assets } from './assets.ts'
 import { batchVsFlow } from './controllers/batch-vs-flow/controller.tsx'
 import { bessemer } from './controllers/bessemer/controller.tsx'
+import { favicon } from './controllers/favicon.tsx'
 import { home } from './controllers/home.tsx'
 import { pinFactory } from './controllers/pin-factory/controller.tsx'
 import { redBeads } from './controllers/red-beads/controller.tsx'
@@ -16,6 +17,7 @@ router.get(routes.assets, async ({ request }) => {
   return response ?? new Response('Not Found', { status: 404 })
 })
 
+router.map(routes.favicon, favicon)
 router.map(routes.home, home)
 router.map(routes.redBeads, redBeads)
 router.map(routes.shewhart, shewhart)
