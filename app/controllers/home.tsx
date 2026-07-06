@@ -247,6 +247,49 @@ function CatalogSchema() {
         </svg>
       )
     }
+    if (kind === 'ledger') {
+      return (
+        <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
+          {[0, 1, 2, 3].map((row) => {
+            let y = 8 + row * 12
+            let won = row === 1
+            return (
+              <g key={`lg-${row}`}>
+                <rect
+                  x="4"
+                  y={y}
+                  width="70"
+                  height="9"
+                  fill={won ? T.accent : 'none'}
+                  opacity={won ? 0.85 : 1}
+                  stroke={T.ink}
+                  stroke-width="0.6"
+                />
+                <line
+                  x1="78"
+                  y1={y + 4.5}
+                  x2={won ? 106 : 92 + row * 4}
+                  y2={y + 4.5}
+                  stroke={won ? T.accent : T.ink}
+                  stroke-width={won ? 2 : 1}
+                />
+              </g>
+            )
+          })}
+          <text
+            x="55"
+            y="58"
+            text-anchor="middle"
+            font-size="6"
+            font-family="IBM Plex Mono"
+            fill={T.ink}
+            opacity="0.6"
+          >
+            SEALED BIDS · LOW WINS
+          </text>
+        </svg>
+      )
+    }
     if (kind === 'parallel') {
       return (
         <svg viewBox="0 0 110 60" mix={schemaSvgStyle}>
