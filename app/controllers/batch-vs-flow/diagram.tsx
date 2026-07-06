@@ -44,7 +44,7 @@ function StageCard(handle: Handle<{ stage: StageSnapshot; index: number; isLast:
       <div mix={stationCardStyle}>
         <div mix={stationTopRowStyle}>
           <span mix={stationCodeStyle}>STG.{String(index + 1).padStart(2, '0')}</span>
-          {index > 0 && <QueueChip batches={stage.queueBatches} units={stage.queueUnits} />}
+          <QueueChip batches={stage.queueBatches} units={stage.queueUnits} />
         </div>
         <div mix={stationNameStyle}>{stage.name}</div>
         <div
@@ -63,7 +63,7 @@ function StageCard(handle: Handle<{ stage: StageSnapshot; index: number; isLast:
             }}
           />
         </div>
-        <BatchPile size={stage.currentSize} />
+        <BatchPile current={stage.currentSize} queued={stage.queueUnits} />
       </div>
     )
   }
@@ -81,13 +81,17 @@ function QueueChip(handle: Handle<{ batches: number; units: number }>) {
   }
 }
 
-function BatchPile(handle: Handle<{ size: number }>) {
+// Solid cells are units on the machine; faint cells are units queued in
+// front of it. Together they account for all WIP at the station, so the
+// piles visually sum to the WIP readout in the header.
+function BatchPile(handle: Handle<{ current: number; queued: number }>) {
   return () => {
-    let { size } = handle.props
+    let { current, queued } = handle.props
+    let size = current + queued
     let shown = Math.min(size, PILE_MAX)
     let cells = []
     for (let i = 0; i < shown; i++) {
-      cells.push(<span key={`u-${i}`} mix={pileCellStyle} />)
+      cells.push(<span key={`u-${i}`} mix={i < current ? pileCellStyle : pileCellQueuedStyle} />)
     }
     return (
       <div mix={pileWrapStyle}>
@@ -215,6 +219,14 @@ const pileCellStyle = css({
   width: '6px',
   height: '6px',
   background: T.ink,
+})
+
+const pileCellQueuedStyle = css({
+  display: 'block',
+  width: '6px',
+  height: '6px',
+  background: T.ink,
+  opacity: 0.3,
 })
 
 const pileMoreStyle = css({
