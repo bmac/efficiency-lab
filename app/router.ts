@@ -3,6 +3,7 @@ import { createRouter } from 'remix/fetch-router'
 import { assets } from './assets.ts'
 import { batchVsFlow } from './controllers/batch-vs-flow/controller.tsx'
 import { bessemer } from './controllers/bessemer/controller.tsx'
+import { cheapestTon } from './controllers/cheapest-ton/controller.tsx'
 import { favicon } from './controllers/favicon.tsx'
 import { home } from './controllers/home.tsx'
 import { pinFactory } from './controllers/pin-factory/controller.tsx'
@@ -24,3 +25,4 @@ router.map(routes.shewhart, shewhart)
 router.map(routes.pinFactory, pinFactory)
 router.map(routes.batchVsFlow, batchVsFlow)
 router.map(routes.bessemer, bessemer)
+router.map(routes.cheapestTon, cheapestTon)

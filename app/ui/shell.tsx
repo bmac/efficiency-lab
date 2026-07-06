@@ -22,14 +22,21 @@ export const FONT_STACK =
   '"IBM Plex Mono", "JetBrains Mono", ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace'
 
 export interface LabMeta {
-  slug: 'index' | 'red-beads' | 'shewhart' | 'pin-factory' | 'batch-vs-flow' | 'bessemer'
+  slug:
+    | 'index'
+    | 'red-beads'
+    | 'shewhart'
+    | 'pin-factory'
+    | 'batch-vs-flow'
+    | 'bessemer'
+    | 'cheapest-ton'
   href: string
   id: string
   code: string
   short: string
   name: string
   sub: string
-  schema: 'jar' | 'chart' | 'line' | 'parallel' | 'converter'
+  schema: 'jar' | 'chart' | 'line' | 'parallel' | 'converter' | 'ledger'
   fig: string
   source: string
   est: string
@@ -100,6 +107,19 @@ export const LABS: LabMeta[] = [
     fig: 'Fig. 5.0 — Adoption under uncertainty',
     source: 'Potter, Origins of Efficiency',
     est: '9 min',
+  },
+  {
+    slug: 'cheapest-ton',
+    href: '/cheapest-ton',
+    id: '06',
+    code: 'CT-006',
+    short: 'The Cheapest Ton',
+    name: 'The Cheapest Ton',
+    sub: 'Two furnaces, an order book, a rival mill. Bid the cheapest ton as the ground moves.',
+    schema: 'ledger',
+    fig: 'Fig. 6.0 — The trade-off has no right answer',
+    source: 'Potter, Origins of Efficiency',
+    est: '6 min',
   },
 ]
 
