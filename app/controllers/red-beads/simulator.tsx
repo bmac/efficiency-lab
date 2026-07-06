@@ -199,6 +199,7 @@ export const RedBeadSimulator = clientEntry(
                   redFraction={config.redFraction}
                   paddleSize={config.paddleSize}
                   totalBeads={config.totalBeads}
+                  target={config.target}
                 />
               </Panel>
 
@@ -394,9 +395,11 @@ export const RedBeadSimulator = clientEntry(
   },
 )
 
-function Jar(handle: Handle<{ redFraction: number; paddleSize: number; totalBeads: number }>) {
+function Jar(
+  handle: Handle<{ redFraction: number; paddleSize: number; totalBeads: number; target: number }>,
+) {
   return () => {
-    let { redFraction, paddleSize, totalBeads } = handle.props
+    let { redFraction, paddleSize, totalBeads, target } = handle.props
     let cols = 28
     let rows = 8
     let total = cols * rows
@@ -455,6 +458,9 @@ function Jar(handle: Handle<{ redFraction: number; paddleSize: number; totalBead
           <div mix={jarStatLabelTopStyle}>Paddle size</div>
           <div mix={jarStatValueSmStyle}>{paddleSize}</div>
           <div mix={jarStatHintStyle}>beads / scoop</div>
+          <div mix={jarStatLabelTopStyle}>Target</div>
+          <div mix={jarStatValueSmStyle}>{target}</div>
+          <div mix={jarStatHintStyle}>reds / scoop max</div>
         </div>
       </div>
     )
