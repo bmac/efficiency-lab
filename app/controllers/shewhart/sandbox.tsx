@@ -79,7 +79,7 @@ export const ShewhartSandbox = clientEntry(
     }
 
     function reshuffle() {
-      config.seed = Math.floor(Math.random() * 1_000_000)
+      config.seed = Math.floor(Math.random() * 10_000)
       update()
     }
 
